@@ -1,0 +1,14 @@
+# Comfy node dependencies. Do not replace the host's Torch/CUDA installation.
+numpy>=1.26,<3
+transformers>=4.46.3,<5
+safetensors>=0.6
+accelerate>=1.0
+scipy>=1.13
+soundfile>=0.13
+onnxruntime>=1.20
+einops>=0.8
+soxr>=1.0
+kaldi-native-fbank>=1.20
+kaldiio>=2.18
+filelock>=3.15
+huggingface_hub>=0.23,<1

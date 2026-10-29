@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "cuda": "12.8",
+  "architectures": [
+    80,
+    86,
+    89,
+    90,
+    100,
+    120
+  ],
+  "source_sha256": "6d1d5d004cc5c07574c5a0178c51f745e5584efb5a5b7f98ef3b45af1fa0d9b3",
+  "sha256": "d27bbd232ed198939a7e7d0edc1067154c8081dc807126674a08dc52cdb4405d",
+  "build_seconds": 23.580831050872803
+}

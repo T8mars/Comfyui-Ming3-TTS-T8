@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ming3-tts-t8"
+version = "0.1.0"
+description = "Native Ming 3.0 Tiny speech synthesis, voice cloning and Confucius ASR for ComfyUI."
+requires-python = ">=3.10"
+readme = "README.md"
+license = { file = "LICENSE" }
+authors = [{ name = "T8star" }]
+dependencies = [
+  "numpy>=1.26,<3", "transformers>=4.46.3,<5", "safetensors>=0.6",
+  "accelerate>=1.0", "scipy>=1.13", "soundfile>=0.13", "onnxruntime>=1.20",
+  "einops>=0.8", "soxr>=1.0", "kaldi-native-fbank>=1.20", "kaldiio>=2.18",
+  "filelock>=3.15", "huggingface_hub>=0.23,<1",
+]
+classifiers = ["Operating System :: Microsoft :: Windows", "Environment :: GPU :: NVIDIA CUDA"]
+
+[project.urls]
+Repository = "https://github.com/T8mars/Comfyui-Ming3-TTS-T8"
+Documentation = "https://github.com/T8mars/Comfyui-Ming3-TTS-T8#readme"
+"Bug Tracker" = "https://github.com/T8mars/Comfyui-Ming3-TTS-T8/issues"
+Models = "https://huggingface.co/t8star/Ming3-TTS-Comfy"
+
+[tool.comfy]
+PublisherId = "t8star"
+DisplayName = "Ming 3.0 TTS · T8star"
+Icon = "https://raw.githubusercontent.com/T8mars/Comfyui-Ming3-TTS-T8/main/assets/icon.svg"
+
+[tool.setuptools.packages.find]
+include = ["ming_t8*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

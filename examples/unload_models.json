@@ -1,0 +1,60 @@
+{
+  "last_node_id": 1,
+  "last_link_id": 0,
+  "nodes": [
+    {
+      "id": 1,
+      "type": "MingT8Unload",
+      "pos": [
+        0,
+        0
+      ],
+      "size": [
+        370,
+        360
+      ],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "model",
+          "type": "MING_T8_MODEL",
+          "link": null
+        },
+        {
+          "name": "after_audio",
+          "type": "AUDIO",
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "STRING",
+          "type": "STRING",
+          "links": []
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "MingT8Unload"
+      },
+      "widgets_values": [],
+      "color": "#513b45",
+      "bgcolor": "#74505e"
+    }
+  ],
+  "links": [],
+  "groups": [],
+  "config": {},
+  "extra": {
+    "ds": {
+      "scale": 0.75,
+      "offset": [
+        30,
+        30
+      ]
+    },
+    "info": "T8 Ming native. Load example audio into Comfy input, then queue."
+  },
+  "version": 0.4
+}

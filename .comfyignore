@@ -1,0 +1,15 @@
+.github/
+tests/
+.planning/
+.publishing/
+native/
+studio/
+studio.py
+requirements-dev.txt
+requirements-studio.txt
+scripts/*
+!scripts/fetch_models.py
+roadmap.md
+Ming3-TTS-规划.md
+安装Comfy节点.ps1
+启动工作台.cmd

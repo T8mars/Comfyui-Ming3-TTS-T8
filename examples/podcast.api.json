@@ -1,0 +1,124 @@
+{
+  "1": {
+    "class_type": "MingT8ModelLoader",
+    "inputs": {
+      "model_path": "",
+      "assets_path": "",
+      "device": "cuda:0"
+    }
+  },
+  "2": {
+    "class_type": "LoadAudio",
+    "inputs": {
+      "audio": "ming_参考1.wav"
+    }
+  },
+  "3": {
+    "class_type": "MingT8Reference",
+    "inputs": {
+      "audio": [
+        "2",
+        0
+      ],
+      "transcript": "诶，你今天有空吗？我们能不能聊聊这件事啊？",
+      "auto_transcribe": false,
+      "language": "Chinese"
+    }
+  },
+  "4": {
+    "class_type": "LoadAudio",
+    "inputs": {
+      "audio": "ming_参考2.wav"
+    }
+  },
+  "5": {
+    "class_type": "MingT8Reference",
+    "inputs": {
+      "audio": [
+        "4",
+        0
+      ],
+      "transcript": "感谢你的认可。",
+      "auto_transcribe": false,
+      "language": "Chinese"
+    }
+  },
+  "6": {
+    "class_type": "MingT8SpeakerBank",
+    "inputs": {
+      "reference": [
+        "3",
+        0
+      ]
+    }
+  },
+  "7": {
+    "class_type": "MingT8SpeakerBank",
+    "inputs": {
+      "reference": [
+        "5",
+        0
+      ],
+      "previous": [
+        "6",
+        0
+      ]
+    }
+  },
+  "8": {
+    "class_type": "MingT8Task",
+    "inputs": {
+      "task": "podcast",
+      "text": "speaker_1: 你好，今天过得怎么样？\nspeaker_2: 很好，我们一起去吃饭吧。",
+      "language": "Chinese",
+      "ip": "灵小柔",
+      "style": "年轻清晰、温暖自然的女声",
+      "instruction": "用温暖自然的叙事语气讲述",
+      "emotion": "中性",
+      "dialect": "川渝话",
+      "speed": "中速",
+      "pitch": "中",
+      "volume": "中",
+      "speakers": [
+        "7",
+        0
+      ]
+    }
+  },
+  "9": {
+    "class_type": "MingT8Generate",
+    "inputs": {
+      "seed": -1,
+      "cfg": 2.0,
+      "flow_steps": 10,
+      "temperature": 0.0,
+      "sigma": 0.25,
+      "minimum": 0,
+      "maximum": 0,
+      "stop_threshold": 0.5,
+      "log_every_n_steps": 0,
+      "model": [
+        "1",
+        0
+      ],
+      "request": [
+        "8",
+        0
+      ]
+    }
+  },
+  "10": {
+    "class_type": "MingT8Save",
+    "inputs": {
+      "audio": [
+        "9",
+        0
+      ],
+      "report": [
+        "9",
+        2
+      ],
+      "filename_prefix": "MingT8/podcast"
+    }
+  }
+}

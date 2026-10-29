@@ -1,0 +1,634 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>明 · 本地语音工作台 | T8star</title>
+    <link rel="stylesheet" href="/studio/style.css" />
+  </head>
+  <body>
+    <aside class="sidebar">
+      <a class="brand" href="/" aria-label="明语音首页"
+        ><span class="brand-mark">明</span>
+        <div>
+          <strong>明 · 语音工作台</strong><small>MING 3.0 · T8star</small>
+        </div></a
+      >
+      <div class="nav-label">开始创作</div>
+      <nav aria-label="工作区">
+        <button class="nav-button active" data-view="single">
+          <span>◉</span>配音工作台<small>01</small>
+        </button>
+        <button class="nav-button" data-view="dialogue">
+          <span>◫</span>多人对话<small>02</small>
+        </button>
+        <button class="nav-button" data-view="batch">
+          <span>▤</span>长文与批量<small>03</small>
+        </button>
+        <button class="nav-button" data-view="library">
+          <span>♫</span>我的声音库
+        </button>
+        <button class="nav-button" data-view="history">
+          <span>◷</span>任务历史
+        </button>
+      </nav>
+      <div class="sidebar-bottom">
+        <div class="local-pill">
+          <span class="dot"></span>本地运行 · 音频留在本机
+        </div>
+        <button class="text-button" id="settings-open">
+          设置与使用帮助 ↗
+        </button>
+        <p>整合制作：B站 @T8star-Aix</p>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <div>
+          <span class="eyebrow">让文字，拥有自己的声音</span>
+          <h1 id="view-title">从一句话开始创作</h1>
+          <p id="view-description">写好文字，选一个声音，其余的交给明。</p>
+        </div>
+        <div class="top-actions">
+          <button class="button quiet" id="project-import">导入工程</button
+          ><button class="button quiet" id="project-save">保存工程</button
+          ><button class="model-chip" id="model-status" type="button" title="选择或下载模型">正在检查模型…</button>
+        </div>
+      </header>
+
+      <div class="notice" id="model-notice" hidden></div>
+      <div class="workspace" id="creation-workspace">
+        <div class="editor-column">
+          <section class="card writing-card" id="writing-card">
+            <div class="section-heading">
+              <div>
+                <span class="step">01</span>
+                <h2>写下想说的话</h2>
+              </div>
+              <button class="text-button" id="fill-example">试试示例</button>
+            </div>
+            <textarea
+              id="main-text"
+              rows="7"
+              placeholder="例如：你好，很高兴在这里遇见你。让我们把今天的灵感，变成一段有温度的声音。"
+              aria-label="要生成的文字"
+            ></textarea>
+            <div class="editor-meta">
+              <span>正文只填写要说的话，演绎要求在下方设置</span
+              ><span id="text-count">0 字</span>
+            </div>
+            <div class="tag-toolbar" id="tag-toolbar" hidden>
+              <span>插入声音：</span><button data-tag="[Laughter]">笑声</button
+              ><button data-tag="[Sigh]">叹气</button
+              ><button data-tag="[Breathing]">呼吸</button
+              ><button id="all-tags">全部 14 种</button>
+            </div>
+          </section>
+
+          <section class="card voice-card" id="voice-card">
+            <div class="section-heading">
+              <div>
+                <span class="step">02</span>
+                <h2>选择声音与演绎方式</h2>
+              </div>
+              <span class="hint-chip">10 种官方任务</span>
+            </div>
+            <div class="form-row">
+              <label class="grow"
+                >我想制作<select id="task">
+                  <option value="ip">使用内置音色</option>
+                  <option value="seed">克隆中英文声音</option>
+                  <option value="voice_design">用文字设计声音</option>
+                  <option value="freeform">自由描述演绎方式</option>
+                  <option value="multilingual">多语种克隆</option>
+                  <option value="emotion">情绪配音</option>
+                  <option value="dialect">方言配音</option>
+                  <option value="basic">调整语速、音高和音量</option>
+                  <option value="paralinguistic">笑声与语气标签</option>
+                  <option value="podcast">多人联合对话</option>
+                </select></label
+              ><label class="grow" id="language-field"
+                >朗读语言<select id="language">
+                  <option value="Chinese">中文</option>
+                  <option value="English">English</option>
+                  <option value="German">Deutsch</option>
+                  <option value="Spanish">Español</option>
+                  <option value="French">Français</option>
+                  <option value="Korean">한국어</option>
+                  <option value="Japanese">日本語</option>
+                </select></label
+              >
+            </div>
+            <p class="field-note" id="task-help"></p>
+            <div id="builtin-fields">
+              <div class="voice-selected">
+                <span class="voice-avatar">柔</span>
+                <div class="grow">
+                  <strong id="voice-name">灵小柔</strong>
+                  <p id="voice-description">清亮甜美，适合日常配音与温暖表达</p>
+                </div>
+                <button class="button quiet" id="choose-voice">更换音色</button
+                ><button
+                  class="round-button"
+                  id="preview-voice"
+                  aria-label="生成当前音色试听"
+                >
+                  ▶
+                </button>
+              </div>
+              <p class="field-note">中文、英文与官方情绪变体均可搜索选择。</p>
+            </div>
+            <label id="style-field" hidden
+              >描述你希望听到的声音<textarea
+                id="style"
+                rows="3"
+                placeholder="例如：年轻温暖的女声，声音清晰，语调自然，像在和朋友聊天。"
+              ></textarea>
+            </label>
+            <label id="instruction-field" hidden
+              >希望怎样演绎这段话<textarea
+                id="instruction"
+                rows="3"
+                placeholder="例如：像深夜电台讲故事一样，温柔、平静，句末稍作停顿。"
+              ></textarea>
+            </label>
+            <div class="form-row" id="emotion-field" hidden>
+              <label class="grow"
+                >情绪<select id="emotion">
+                  <option>中性</option>
+                  <option>高兴</option>
+                  <option>悲伤</option>
+                  <option>愤怒</option>
+                  <option>惊讶</option>
+                  <option>恐惧</option>
+                  <option>厌恶</option>
+                </select></label
+              >
+            </div>
+            <label id="dialect-field" hidden
+              >方言<select id="dialect">
+                <option>川渝话</option>
+                <option>广粤话</option>
+              </select></label
+            >
+            <div class="form-row" id="basic-fields" hidden>
+              <label class="grow"
+                >语速<select id="speed">
+                  <option>慢速</option>
+                  <option selected>中速</option>
+                  <option>快速</option>
+                </select></label
+              ><label class="grow"
+                >音高<select id="pitch">
+                  <option>低</option>
+                  <option selected>中</option>
+                  <option>高</option>
+                </select></label
+              ><label class="grow"
+                >音量<select id="volume">
+                  <option>低</option>
+                  <option selected>中</option>
+                  <option>高</option>
+                </select></label
+              >
+            </div>
+
+            <div id="reference-fields" hidden>
+              <div class="subheading">
+                <h3>参考声音</h3>
+                <button class="text-button" id="choose-saved-voice">
+                  从我的声音库选择
+                </button>
+              </div>
+              <div class="upload-zone" id="reference-drop">
+                <input
+                  type="file"
+                  id="reference-upload"
+                  accept="audio/*,video/*"
+                  hidden
+                /><span class="upload-icon">↑</span
+                ><strong>拖入一段清晰的录音</strong
+                ><span
+                  >或
+                  <button class="text-button" id="upload-reference">
+                    选择文件</button
+                  ><span class="separator">/</span
+                  ><button class="text-button" id="record-reference">
+                    开始录音
+                  </button></span
+                ><small>保留原声，选择干净、连续的一段说话内容</small>
+              </div>
+              <div id="reference-detail" hidden>
+                <div class="reference-heading">
+                  <strong id="reference-name"></strong
+                  ><span id="reference-duration"></span>
+                </div>
+                <canvas
+                  id="reference-wave"
+                  height="64"
+                  aria-label="参考录音波形"
+                ></canvas>
+                <div class="form-row crop-row">
+                  <label
+                    >开始（秒）<input
+                      id="crop-start"
+                      type="number"
+                      min="0"
+                      step="0.1"
+                      value="0" /></label
+                  ><label
+                    >结束（秒）<input
+                      id="crop-end"
+                      type="number"
+                      min="0"
+                      step="0.1" /></label
+                  ><button class="button quiet" id="apply-crop">
+                    使用这个片段</button
+                  ><button class="text-button" id="clear-reference">
+                    更换录音
+                  </button>
+                </div>
+                <p class="field-note" id="reference-quality"></p>
+              </div>
+              <div id="transcript-field">
+                <div class="subheading">
+                  <h3>这段录音说了什么</h3>
+                  <button class="button quiet small" id="transcribe-reference">
+                    Confucius 自动识别
+                  </button>
+                </div>
+                <textarea
+                  id="transcript"
+                  rows="3"
+                  placeholder="可自动识别，也可以手动填写。请与参考录音的内容一致。"
+                ></textarea>
+                <div class="editor-meta">
+                  <span id="transcript-state">识别后请检查文字</span
+                  ><button class="text-button" id="adopt-machine" hidden>
+                    采用新的识别结果
+                  </button>
+                </div>
+              </div>
+              <button class="text-button save-voice-button" id="save-reference">
+                ＋ 保存到我的声音库
+              </button>
+            </div>
+          </section>
+
+          <section class="card" id="dialogue-card" hidden>
+            <div class="section-heading">
+              <div>
+                <span class="step">01</span>
+                <h2>安排角色与台词</h2>
+              </div>
+              <button class="text-button" id="add-role">＋ 添加角色</button>
+            </div>
+            <div class="segmented-control">
+              <button class="active" data-dialogue-mode="joint">联合对话</button
+              ><button data-dialogue-mode="director">逐句导演</button>
+            </div>
+            <p class="field-note" id="dialogue-help">
+              所有角色一起生成，自然衔接。每位角色都需要参考录音与对应文字。
+            </p>
+            <div id="roles"></div>
+            <div class="subheading">
+              <h3>对话内容</h3>
+              <button class="text-button" id="add-line">＋ 添加台词</button>
+            </div>
+            <div id="dialogue-lines"></div>
+          </section>
+
+          <section class="card" id="batch-card" hidden>
+            <div class="section-heading">
+              <div>
+                <span class="step">03</span>
+                <h2>分段与批量设置</h2>
+              </div>
+              <button class="text-button" id="batch-import">
+                导入 TXT / CSV / JSON
+              </button>
+            </div>
+            <p class="field-note">
+              沿用当前声音设置。先预览每个片段，再一起加入生成队列。
+            </p>
+            <div class="form-row">
+              <label class="grow"
+                >每段目标长度<input
+                  type="number"
+                  id="chunk-size"
+                  min="20"
+                  max="2000"
+                  value="100" /></label
+              ><label class="grow"
+                >段间停顿（毫秒）<input
+                  type="number"
+                  id="pause-ms"
+                  min="0"
+                  max="60000"
+                  value="250" /></label
+              ><button class="button quiet" id="preview-segments">
+                预览分段
+              </button>
+            </div>
+            <div id="batch-preview" class="batch-preview"></div>
+          </section>
+
+          <details class="card advanced" id="advanced">
+            <summary>
+              <span>高级生成设置</span
+              ><small>已有官方默认值，初次使用无需调整</small>
+            </summary>
+            <div class="advanced-content">
+              <div class="form-grid">
+                <label
+                  >随机种子<input
+                    id="seed"
+                    type="number"
+                    min="0"
+                    value="1234" /></label
+                ><label
+                  >CFG<input
+                    id="cfg"
+                    type="number"
+                    min="0"
+                    step="0.1"
+                    value="2" /></label
+                ><label
+                  >Flow 步数<input
+                    id="flow-steps"
+                    type="number"
+                    min="1"
+                    max="128"
+                    value="10" /></label
+                ><label
+                  >Temperature<input
+                    id="temperature"
+                    type="number"
+                    min="0"
+                    step="0.1"
+                    value="0" /></label
+                ><label
+                  >Sigma<input
+                    id="sigma"
+                    type="number"
+                    min="0"
+                    step="0.05"
+                    value="0.25" /></label
+                ><label
+                  >停止阈值<input
+                    id="stop-threshold"
+                    type="number"
+                    min="0"
+                    max="1"
+                    step="0.05"
+                    value="0.5" /></label
+                ><label
+                  >最小步数 / 对话帧数<input
+                    id="minimum"
+                    type="number"
+                    min="0"
+                    value="0" /></label
+                ><label
+                  >最大步数 / 对话帧数<input
+                    id="maximum"
+                    type="number"
+                    min="0"
+                    value="0"
+                /></label>
+                <label>诊断日志间隔（0关闭）<input id="log-every" type="number" min="0" value="0" /></label>
+              </div>
+              <p class="field-note">
+                最小/最大值为 0 时使用官方默认。联合对话使用 generation
+                frames，范围 8–600。
+              </p>
+              <label class="check-label"
+                ><input
+                  type="checkbox"
+                  id="streaming"
+                />增量播放（实验）：生成过程中播放解码完成的音频</label
+              ><button class="text-button" id="reset-defaults">
+                恢复官方默认值
+              </button>
+            </div>
+          </details>
+        </div>
+
+        <aside class="result-column">
+          <section class="card result-card">
+            <div class="section-heading">
+              <div>
+                <span class="step">↗</span>
+                <h2>听见你的作品</h2>
+              </div>
+              <span class="hint-chip" id="result-badge">等待创作</span>
+            </div>
+            <div class="empty-result" id="empty-result">
+              <div class="sound-bars">
+                <i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+              </div>
+              <h3>每一段文字，都值得被听见</h3>
+              <p>生成后可以试听、下载，<br />也可以保留设置继续调整。</p>
+            </div>
+            <div id="result-detail" hidden>
+              <canvas id="result-wave" width="680" height="128" aria-label="作品波形"></canvas>
+              <audio id="result-audio" controls preload="metadata"></audio>
+              <div class="result-stats" id="result-stats"></div>
+              <div class="download-row">
+                <button class="button primary" data-export="wav">
+                  下载 WAV</button
+                ><button class="button quiet" data-export="flac">FLAC</button
+                ><button class="button quiet" data-export="mp3">MP3</button>
+                <button class="text-button" data-export="json">生成记录</button>
+              </div>
+              <div class="download-row secondary-downloads">
+                <button class="text-button" data-export="srt">导出 SRT</button
+                ><button class="text-button" data-export="vtt">VTT</button
+                ><button class="text-button" id="create-subtitles">
+                  Confucius 生成字幕
+                </button>
+              </div>
+              <p class="field-note">
+                字幕按生成片段或识别分段计时，请校对后使用。
+              </p>
+            </div>
+            <div id="transcript-result" hidden>
+              <textarea
+                rows="7"
+                id="transcript-output"
+                aria-label="识别结果"
+              ></textarea>
+              <div class="download-row">
+                <button class="button quiet" data-export="txt">下载文字</button
+                ><button class="button quiet" data-export="srt">
+                  SRT 字幕
+                </button>
+              </div>
+            </div>
+            <div id="partial-results"></div>
+          </section>
+          <section class="card recent-card">
+            <div class="section-heading">
+              <h2>最近的创作</h2>
+              <button class="text-button" id="show-history">全部</button>
+            </div>
+            <div id="recent-jobs" class="recent-jobs">
+              <p class="field-note">完成的作品会保存在这里。</p>
+            </div>
+          </section>
+          <div class="tip-card">
+            <strong>一个小提示</strong>
+            <p id="context-tip">
+              内置音色无需准备录音。先生成一句短句，找到喜欢的声音，再开始长篇创作。
+            </p>
+          </div>
+        </aside>
+      </div>
+
+      <section class="card full-page" id="library-page" hidden>
+        <div class="section-heading">
+          <h2>我的声音库</h2>
+          <button class="button quiet" id="new-voice">＋ 添加参考声音</button>
+        </div>
+        <p class="field-note">保存录音和已校对文字，下次直接使用。</p>
+        <div id="saved-voices" class="voice-grid"></div>
+      </section>
+      <section class="card full-page" id="history-page" hidden>
+        <div class="section-heading">
+          <h2>任务历史</h2>
+          <button class="button quiet" id="open-outputs">打开结果目录</button>
+        </div>
+        <div id="history-list"></div>
+      </section>
+    </main>
+
+    <footer class="generation-dock">
+      <div class="dock-status">
+        <span class="status-orb" id="status-orb"></span>
+        <div>
+          <strong id="progress-title">准备好，把灵感变成声音</strong
+          ><span id="progress-message">先填写文字，再选择喜欢的声音</span>
+        </div>
+      </div>
+      <div class="dock-progress">
+        <progress id="job-progress" max="1" value="0"></progress
+        ><span id="progress-percent"></span>
+      </div>
+      <button class="button quiet" id="cancel-job" hidden>取消任务</button
+      ><button class="button generate-button" id="generate">
+        <span>✦</span> 生成语音
+      </button>
+    </footer>
+
+    <dialog id="voice-dialog">
+      <div class="dialog-heading">
+        <div>
+          <span class="eyebrow">找到你的声音</span>
+          <h2>官方音色</h2>
+        </div>
+        <button
+          class="icon-button"
+          data-close-dialog="voice-dialog"
+          aria-label="关闭"
+        >
+          ×
+        </button>
+      </div>
+      <div class="form-row voice-filters">
+        <input
+          class="grow"
+          id="voice-search"
+          placeholder="搜索名字、用途、年龄或情绪…"
+        /><select id="voice-filter">
+          <option value="">全部语言</option>
+          <option value="Chinese">中文</option>
+          <option value="English">英文</option>
+        </select>
+        <select id="voice-purpose" aria-label="按用途筛选音色">
+          <option value="">全部用途</option>
+          <option value="service">客服 / 助手</option>
+          <option value="narration">有声书 / 旁白</option>
+          <option value="radio">电台 / 情感</option>
+          <option value="news">新闻 / 播报</option>
+          <option value="character">角色 / 游戏</option>
+          <option value="promotion">广告 / 带货</option>
+          <option value="daily">日常 / 生活</option>
+        </select>
+      </div>
+      <div class="catalog-options"><label class="check-label"><input id="voice-favorites-only" type="checkbox">只看收藏</label><small>用途按官方目录描述筛选，可搭配语言与关键词。</small></div>
+      <div id="voice-catalog" class="voice-grid"></div>
+      <button class="button quiet wide" id="more-voices">显示更多音色</button>
+    </dialog>
+    <dialog id="saved-dialog">
+      <div class="dialog-heading">
+        <h2>选择我的声音</h2>
+        <button
+          class="icon-button"
+          data-close-dialog="saved-dialog"
+          aria-label="关闭"
+        >
+          ×
+        </button>
+      </div>
+      <div id="saved-voice-picker" class="voice-grid"></div>
+    </dialog>
+    <dialog id="settings-dialog">
+      <div class="dialog-heading">
+        <h2>设置与使用帮助</h2>
+        <button
+          class="icon-button"
+          data-close-dialog="settings-dialog"
+          aria-label="关闭"
+        >
+          ×
+        </button>
+      </div>
+      <div id="settings-info"></div>
+      <div class="help-block">
+        <h3>第一次使用</h3>
+        <ol>
+          <li>选择“使用内置音色”，填写一句短文。</li>
+          <li>点击“生成语音”，等待首次模型加载。</li>
+          <li>试听满意后下载，或保存工程继续创作。</li>
+        </ol>
+        <p>
+          声音克隆需要清晰录音与准确的对应文字。朗读语言只是语言提示，不会翻译原文。
+        </p>
+        <p>联合对话与逐句导演是两种制作方式。长节目建议分场景生成。</p>
+      </div>
+      <button class="button quiet" id="unload-models">释放模型显存</button
+      ><button class="button quiet" id="open-data">打开作品目录</button>
+    </dialog>
+    <dialog id="name-dialog">
+      <form method="dialog">
+        <div class="dialog-heading">
+          <h2 id="name-title">保存声音</h2>
+          <button class="icon-button" value="cancel" aria-label="关闭">
+            ×
+          </button>
+        </div>
+        <label
+          >名称<input
+            id="name-input"
+            required
+            maxlength="80"
+            autocomplete="off"
+        /></label>
+        <div class="dialog-actions">
+          <button class="button quiet" value="cancel">取消</button
+          ><button class="button primary" id="confirm-name" value="confirm">
+            保存
+          </button>
+        </div>
+      </form>
+    </dialog>
+    <div class="toast" id="toast" role="status" hidden></div>
+    <input type="file" id="project-file" accept=".zip" hidden /><input
+      type="file"
+      id="batch-file"
+      accept=".txt,.csv,.tsv,.json"
+      hidden
+    />
+    <script type="module" src="/studio/app.js"></script>
+  </body>
+</html>

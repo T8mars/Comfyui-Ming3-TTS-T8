@@ -1,0 +1,50 @@
+{
+  "1": {
+    "class_type": "LoadAudio",
+    "inputs": {
+      "audio": "ming_参考1.wav"
+    }
+  },
+  "2": {
+    "class_type": "MingT8OneClick",
+    "inputs": {
+      "task": "seed",
+      "text": "欢迎回来，今天我们一起创作新的故事。",
+      "language": "Chinese",
+      "ip": "灵小柔",
+      "style": "年轻清晰、温暖自然的女声",
+      "instruction": "用温暖自然的叙事语气讲述",
+      "emotion": "中性",
+      "dialect": "川渝话",
+      "speed": "中速",
+      "pitch": "中",
+      "volume": "中",
+      "model_path": "",
+      "seed": -1,
+      "flow_steps": 10,
+      "auto_transcribe": true,
+      "reference_text": "",
+      "reference_start": 0.1,
+      "reference_end": 3.1,
+      "audio": [
+        "1",
+        0
+      ]
+    }
+  },
+  "3": {
+    "class_type": "MingT8Export",
+    "inputs": {
+      "audio": [
+        "2",
+        0
+      ],
+      "format": "mp3",
+      "filename_prefix": "MingT8/one_click",
+      "report": [
+        "2",
+        2
+      ]
+    }
+  }
+}

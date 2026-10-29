@@ -1,0 +1,7 @@
+Ming 3.0 TTS · T8star
+Copyright 2026 T8star.
+
+Original node, studio, integration and CUDA code is licensed under Apache-2.0.
+Vendored Ming code retains its MIT license. Confucius-derived code retains
+its Apache-2.0 license and attribution. Models and third-party binaries keep
+their own licenses; see THIRD_PARTY_NOTICES.md and the distributed licenses/.

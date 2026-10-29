@@ -1,0 +1,53 @@
+{
+  "1": {
+    "class_type": "LoadAudio",
+    "inputs": {
+      "audio": "ming_参考1.wav"
+    }
+  },
+  "2": {
+    "class_type": "MingT8Transcribe",
+    "inputs": {
+      "language": "Chinese",
+      "subtitle_timings": true,
+      "context": "",
+      "hotwords": "",
+      "audio": [
+        "1",
+        0
+      ]
+    }
+  },
+  "3": {
+    "class_type": "MingT8Subtitles",
+    "inputs": {
+      "timeline": [
+        "2",
+        1
+      ]
+    }
+  },
+  "4": {
+    "class_type": "MingT8Export",
+    "inputs": {
+      "audio": [
+        "1",
+        0
+      ],
+      "format": "flac",
+      "filename_prefix": "MingT8/asr",
+      "report": [
+        "2",
+        2
+      ],
+      "srt": [
+        "3",
+        0
+      ],
+      "vtt": [
+        "3",
+        1
+      ]
+    }
+  }
+}

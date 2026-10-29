@@ -1,0 +1,86 @@
+{
+  "1": {
+    "class_type": "MingT8ModelLoader",
+    "inputs": {
+      "model_path": "",
+      "assets_path": "",
+      "device": "cuda:0"
+    }
+  },
+  "8": {
+    "class_type": "MingT8Task",
+    "inputs": {
+      "task": "ip",
+      "text": "你好，欢迎来到明语音工作台。",
+      "language": "Chinese",
+      "ip": "灵小柔",
+      "style": "年轻清晰、温暖自然的女声",
+      "instruction": "用温暖自然的叙事语气讲述",
+      "emotion": "中性",
+      "dialect": "川渝话",
+      "speed": "中速",
+      "pitch": "中",
+      "volume": "中"
+    }
+  },
+  "11": {
+    "class_type": "MingT8BatchPlan",
+    "inputs": {
+      "text_or_file_content": "第一段，欢迎来到明语音工作台。\n第二段，我们开始一起创作。",
+      "format": "txt",
+      "max_units": 120,
+      "pause_ms": 250,
+      "seed": -1,
+      "flow_steps": 10,
+      "template": [
+        "8",
+        0
+      ]
+    }
+  },
+  "12": {
+    "class_type": "MingT8BatchGenerate",
+    "inputs": {
+      "model": [
+        "1",
+        0
+      ],
+      "batch": [
+        "11",
+        0
+      ]
+    }
+  },
+  "13": {
+    "class_type": "MingT8Subtitles",
+    "inputs": {
+      "timeline": [
+        "12",
+        1
+      ]
+    }
+  },
+  "14": {
+    "class_type": "MingT8Export",
+    "inputs": {
+      "audio": [
+        "12",
+        0
+      ],
+      "format": "wav",
+      "filename_prefix": "MingT8/batch",
+      "report": [
+        "12",
+        2
+      ],
+      "srt": [
+        "13",
+        0
+      ],
+      "vtt": [
+        "13",
+        1
+      ]
+    }
+  }
+}
