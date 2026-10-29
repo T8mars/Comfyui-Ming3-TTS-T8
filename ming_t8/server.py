@@ -74,7 +74,7 @@ def create_app():
         from .asr import ASR
         from .engine import MODEL_MANAGER
         from .downloads import DOWNLOADS
-        return {"version": "0.1.0", "model": model_status(), "asr": ASR.available(), "download": DOWNLOADS.status(),
+        return {"version": "0.1.1", "model": model_status(), "asr": ASR.available(), "download": DOWNLOADS.status(),
                 "loaded": MODEL_MANAGER.engine is not None, "active_job": jobs.active,
                 "data_root": configuration()["data_root"], "python": f"{sys.version_info.major}.{sys.version_info.minor}"}
 

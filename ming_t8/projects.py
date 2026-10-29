@@ -28,6 +28,14 @@ def _resource_holders(project):
 
 def validate_project(project):
     from .contracts import TaskRequest
+    if not isinstance(project, dict):
+        raise ValueError("工程内容必须是对象")
+    segments = project.get("segments", [])
+    if not isinstance(segments, list) or any(not isinstance(item, dict) for item in segments):
+        raise ValueError("工程片段必须是对象列表")
+    characters = project.get("characters", [])
+    if not isinstance(characters, list):
+        raise ValueError("工程角色必须是列表")
     requests = list(_requests(project))
     if not requests:
         raise ValueError("工程至少需要一段有效的生成设置")
@@ -78,6 +86,13 @@ def export_project(project, destination=None):
 
 
 def import_project(filename):
+    try:
+        return _import_project(filename)
+    except (zipfile.BadZipFile, KeyError, UnicodeError) as error:
+        raise ValueError("工程文件损坏或缺少必要内容，请重新导出工程") from error
+
+
+def _import_project(filename):
     target = data_directory("projects") / uuid.uuid4().hex
     with zipfile.ZipFile(filename) as archive:
         if sum(info.file_size for info in archive.infolist()) > 512 * 1024 * 1024:
@@ -89,12 +104,21 @@ def import_project(filename):
         if len({info.filename for info in archive.infolist()}) != len(archive.infolist()):
             raise ValueError("工程包含重复文件名")
         value = json.loads(archive.read("project.json"))
+        if not isinstance(value, dict):
+            raise ValueError("工程内容必须是对象")
         if value.get("schema_version") != 1:
             raise ValueError("不支持此工程版本")
+        descriptions = value.get("resources", {})
+        if not isinstance(descriptions, dict):
+            raise ValueError("工程资源清单必须是对象")
+        validate_project(value)
         resources = {}
-        for name, description in value.get("resources", {}).items():
+        for name, description in descriptions.items():
             if not name.startswith("resources/"):
                 raise ValueError("工程资源必须位于resources目录")
+            if (not isinstance(description, dict) or type(description.get("size")) is not int
+                    or description["size"] < 0 or not isinstance(description.get("sha256"), str)):
+                raise ValueError("工程资源校验信息不正确")
             data = archive.read(name)
             if len(data) != description["size"] or hashlib.sha256(data).hexdigest() != description["sha256"]:
                 raise ValueError("工程音频资源校验失败")

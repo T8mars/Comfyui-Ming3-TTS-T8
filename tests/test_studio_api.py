@@ -27,3 +27,6 @@ def test_studio_api_reference_batch_and_project(tmp_path, monkeypatch):
         restored = client.post("/api/projects/import", files={"file": ("工程.zip", packed.content)})
         assert restored.status_code == 200
         assert len(restored.json()["segments"]) == 2
+        malformed = client.post("/api/projects/import", files={"file": ("bad.zip", b"not a zip")})
+        assert malformed.status_code == 400
+        assert "工程" in malformed.json()["detail"]

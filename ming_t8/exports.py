@@ -5,6 +5,8 @@ from ._vendor.confucius.subtitles import build_subtitles, render_subtitle, wrap_
 def subtitles(result, kind="srt"):
     if result.get("timings") == "generation_segment_boundaries":
         segments = result.get("segments", [])
+        if result.get("truncated") or any(item.get("truncated") for item in segments):
+            raise ValueError("生成结果存在截断片段，请补全或重新生成这些片段后再导出字幕")
         if any(item["request"]["task"] == "podcast" for item in segments):
             raise ValueError("联合Podcast没有逐句对齐时间，请使用Confucius分段转写后导出字幕")
         document = {"cues": [{"start_ms": item["start_ms"], "end_ms": item["end_ms"],

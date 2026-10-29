@@ -2,6 +2,17 @@ import subprocess
 import sys
 
 
+def test_cancel_tolerates_process_exiting_between_poll_and_lookup(monkeypatch):
+    from types import SimpleNamespace
+    from unittest.mock import Mock
+    import psutil
+    from ming_t8 import downloads
+    manager = downloads.Downloads()
+    manager.process = SimpleNamespace(pid=12345, poll=lambda: None, terminate=Mock())
+    monkeypatch.setattr(psutil, "Process", Mock(side_effect=psutil.NoSuchProcess(12345)))
+    assert manager.cancel()["status"] == "cancelled"
+
+
 def test_active_download_lock_and_immediate_resume_after_process_exit(tmp_path, monkeypatch):
     from ming_t8 import downloads
     monkeypatch.setattr(downloads, "configuration", lambda: {"data_root": str(tmp_path)})

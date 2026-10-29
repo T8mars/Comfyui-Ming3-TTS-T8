@@ -5,6 +5,7 @@ import json
 import os
 import re
 import sys
+import tempfile
 import urllib.parse
 import urllib.request
 
@@ -32,7 +33,10 @@ def download_component(target,url,size,checksum,opener=urllib.request.urlopen):
     target=Path(target)
     if target.is_file() and target.stat().st_size==size and file_hash(target)==checksum:return False
     target.parent.mkdir(parents=True,exist_ok=True)
-    partial=target.with_name(target.name+".part")
+    # Each installation owns its temporary file, including concurrent Manager runs.
+    descriptor,name=tempfile.mkstemp(prefix=target.name+".",suffix=".part",dir=target.parent)
+    os.close(descriptor)
+    partial=Path(name)
     try:
         digest=hashlib.sha256();count=0
         with opener(url,timeout=90) as response,partial.open("wb") as output:

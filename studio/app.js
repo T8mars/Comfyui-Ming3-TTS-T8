@@ -13,6 +13,7 @@ const state = {
   reference: null,
   transcriptTouched: false,
   machineText: "",
+  referenceOperation: 0,
   voices: [],
   favoriteVoices: new Set(),
   saved: [],
@@ -162,6 +163,7 @@ function rememberMode() {
     ...(state.modeKey.startsWith("batch:")?{batch:cloneDraft(state.batch),batchImported:cloneDraft(state.batchImported),batchSignature:state.batchSignature}:{})};
 }
 function restoreMode(key) {
+  state.referenceOperation++;
   const draft=state.modeDrafts[key];
   if(draft){
     for(const [id,value] of Object.entries(draft.fields))if($(id))$(id).value=value;
@@ -469,6 +471,11 @@ function drawWave(info,canvas=$("reference-wave")) {
   });
 }
 async function uploadReference(file, roleId = null) {
+  const role = roleId ? state.roles.find((item) => item.id === roleId) : null;
+  if (roleId && !role) return;
+  const owner = role || state;
+  const operation = owner.referenceOperation = (owner.referenceOperation || 0) + 1;
+  const mode = state.modeKey;
   toast("正在读取录音…");
   const form = new FormData();
   form.append("file", file);
@@ -477,20 +484,19 @@ async function uploadReference(file, roleId = null) {
     method: "POST",
     body: { path: info.path, start: 0, end: info.seconds },
   });
+  if (owner.referenceOperation !== operation || state.modeKey !== mode || (role && !state.roles.includes(role))) return;
   const reference = { ...info, ...prepared, source_path: info.path };
   if (roleId) {
-    const role = state.roles.find((item) => item.id === roleId);
     if (role) {
       role.reference = reference;
       role.text = "";
       role.manual = false;
+      role.machineText = "";
     }
     renderRoles();
   } else {
     state.reference = reference;
-    state.transcriptTouched = false;
-    state.machineText = "";
-    $("transcript").value = "";
+    resetReferenceTranscript();
     showReference();
   }
   saveDraft();
@@ -499,6 +505,7 @@ async function uploadReference(file, roleId = null) {
 function showReference() {
   const info = state.reference;
   $("reference-detail").hidden = !info;
+  $("adopt-machine").hidden = !info || !state.transcriptTouched || !state.machineText;
   if (!info) return;
   $("reference-name").textContent = info.name || "我的参考声音";
   $("reference-duration").textContent = `${Number(info.seconds || 0).toFixed(1)} 秒`;
@@ -515,6 +522,13 @@ function showReference() {
     (info.warnings || []).join("；") || "片段已就绪，请试听并检查对应文字。";
   requestAnimationFrame(() => drawWave(info));
 }
+function resetReferenceTranscript(text = "", manual = false) {
+  state.machineText = "";
+  state.transcriptTouched = manual;
+  $("transcript").value = text;
+  $("adopt-machine").hidden = true;
+  $("transcript-state").textContent = manual ? "已手动修改，自动识别不会覆盖" : "请填写与参考录音对应的文字";
+}
 async function transcribeReference(roleId = null) {
   const role = roleId ? state.roles.find((item) => item.id === roleId) : null;
   const reference = role ? role.reference : state.reference;
@@ -525,12 +539,12 @@ async function transcribeReference(roleId = null) {
     (job) => {
       const text = job.result?.text || "";
       if (role) {
-        if (role.reference?.path !== path) return;
+        if (role.reference !== reference || !state.roles.includes(role)) return;
         role.machineText = text;
         if (!role.manual) role.text = text;
         renderRoles();
       } else {
-        if (state.reference?.path !== path) return;
+        if (state.reference !== reference) return;
         state.machineText = text;
         if (!state.transcriptTouched) {
           $("transcript").value = text;
@@ -645,18 +659,21 @@ function renderSaved() {
 function chooseSaved(identifier) {
   const voice = state.saved.find((item) => item.id === identifier);
   if (!voice) return;
-  const role = state.roles.find((item) => item.id === state.voiceTarget);
+  const role = state.view === "dialogue" && $("saved-dialog").open
+    ? state.roles.find((item) => item.id === state.voiceTarget) : null;
   if (role) {
+    role.referenceOperation = (role.referenceOperation || 0) + 1;
     role.reference = { ...voice };
     role.text = voice.text || "";
     role.manual = true;
+    role.machineText = "";
     renderRoles();
   } else {
-    state.reference = { ...voice };
-    $("transcript").value = voice.text || "";
-    state.transcriptTouched = true;
     $("task").value = "seed";
     setView("single");
+    state.referenceOperation++;
+    state.reference = { ...voice };
+    resetReferenceTranscript(voice.text || "", true);
     showReference();
   }
   $("saved-dialog").close();
@@ -1194,6 +1211,8 @@ document
       $(button.dataset.closeDialog).close(),
     ),
   );
+$("saved-dialog").addEventListener("close", () => { state.voiceTarget = null; });
+$("voice-dialog").addEventListener("close", () => { state.catalogRole = null; });
 document.querySelectorAll("[data-export]").forEach((button) =>
   button.addEventListener("click", run(async () => {
     if (!state.focusJob) return toast("请先生成一段作品");
@@ -1216,7 +1235,7 @@ document.addEventListener(
       renderCatalog();
     }
     if (target.dataset.voice) {
-      const role=state.roles.find(item=>item.id===state.catalogRole);
+      const role=state.view==="dialogue"&&$("voice-dialog").open?state.roles.find(item=>item.id===state.catalogRole):null;
       if(role){role.ip=target.dataset.voice;renderRoles();}else{state.voice = target.dataset.voice;state.batch=[];}
       state.catalogRole=null;
       showSelectedVoice();
@@ -1447,25 +1466,29 @@ bind("record-reference", toggleRecording);
 bind("transcribe-reference", () => transcribeReference());
 bind("apply-crop", async () => {
   if (!state.reference) throw new Error("请先上传录音");
+  const reference = state.reference;
+  const operation = ++state.referenceOperation;
+  const mode = state.modeKey;
   const prepared = await api("/api/audio/prepare", {
     method: "POST",
     body: {
-      path: state.reference.source_path || state.reference.path,
+      path: reference.source_path || reference.path,
       start: Number($("crop-start").value),
       end: Number($("crop-end").value),
     },
   });
-  state.reference = { ...state.reference, ...prepared };
-  $("transcript").value = "";
-  state.transcriptTouched = false;
+  if (state.reference !== reference || state.referenceOperation !== operation || state.modeKey !== mode) return;
+  state.reference = { ...reference, ...prepared };
+  resetReferenceTranscript();
   showReference();
   saveDraft();
   toast("已使用选中片段，请重新检查对应文字");
 });
 bind("clear-reference", () => {
+  state.referenceOperation++;
   state.reference = null;
   $("reference-detail").hidden = true;
-  $("transcript").value = "";
+  resetReferenceTranscript();
   saveDraft();
 });
 bind("save-reference", saveVoice);

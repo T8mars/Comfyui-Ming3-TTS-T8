@@ -57,6 +57,8 @@ For the standalone studio, use the full GitHub source, additionally install `req
 
 Validation covers ten tasks, a 69-case generation matrix, 17 executed Comfy workflows and local browser interaction. Eight audio samples passed user listening review; automatic transcription does not establish perceptual quality for every voice or emotion.
 
+Version 0.1.1 fixes 12 issues found in a [20-round cross-review](docs/review-2026-10-29.md), covering reference audio state, queue recovery, text preservation and installation races. All 64 Python tests and desktop/mobile-width browser checks pass. See the [changelog](CHANGELOG.md).
+
 ## Attribution and licenses
 
 Original project code is [Apache-2.0](LICENSE). [Upstream Ming code](https://github.com/inclusionAI/Ming-3.0-tts) retains MIT; [Comfy weights](https://huggingface.co/Comfy-Org/Ming-3.0-TTS), [Confucius](https://github.com/T8mars/comfyui-confucius-r2t2-t8) and other components retain their respective licenses. See [third-party notices](THIRD_PARTY_NOTICES.md).

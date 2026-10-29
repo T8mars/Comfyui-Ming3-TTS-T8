@@ -7,7 +7,27 @@ import pytest
 import soundfile as sf
 
 from ming_t8.batch import preview_batch
-from ming_t8.projects import export_project, import_project
+from ming_t8.projects import export_project, import_project, validate_project
+
+
+@pytest.mark.parametrize("project", [[], {"segments": [None]}, {"segments": {}},
+    {"request": {"task": "ip", "text": "你好", "ip": "灵小柔"}, "characters": {"role": {}}}])
+def test_invalid_project_shapes_report_validation_errors(project):
+    with pytest.raises(ValueError, match="工程"):
+        validate_project(project)
+
+
+@pytest.mark.parametrize("contents", [None, [], {"schema_version": 1, "resources": []}])
+def test_invalid_project_archive_is_rejected_cleanly(tmp_path, monkeypatch, contents):
+    monkeypatch.setenv("MING_T8_DATA", str(tmp_path))
+    archive = tmp_path / "bad.zip"
+    if contents is None:
+        archive.write_bytes(b"not a zip file")
+    else:
+        with zipfile.ZipFile(archive, "w") as output:
+            output.writestr("project.json", json.dumps(contents))
+    with pytest.raises(ValueError, match="工程"):
+        import_project(archive)
 
 
 def test_batch_import_roundtrip_and_numeric_controls():

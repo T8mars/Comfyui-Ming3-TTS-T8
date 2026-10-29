@@ -49,6 +49,19 @@ class Store:
             rows = self.connection.execute("SELECT payload FROM records WHERE kind=? ORDER BY created DESC LIMIT ?", (kind, limit)).fetchall()
         return [json.loads(row[0]) for row in rows]
 
+    def list_by_status(self, kind, statuses):
+        """Read matching records oldest first, without loading terminal history."""
+        statuses = tuple(statuses)
+        if not statuses:
+            return []
+        placeholders = ",".join("?" for _ in statuses)
+        with self.lock:
+            rows = self.connection.execute(
+                "SELECT payload FROM records WHERE kind=? "
+                f"AND json_extract(payload, '$.status') IN ({placeholders}) "
+                "ORDER BY created ASC, rowid ASC", (kind, *statuses)).fetchall()
+        return [json.loads(row[0]) for row in rows]
+
     def delete(self, kind, identifier):
         with self.lock:
             self.connection.execute("DELETE FROM records WHERE kind=? AND id=?", (kind, identifier))

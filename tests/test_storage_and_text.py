@@ -26,6 +26,18 @@ def test_long_text_preserves_tags_and_punctuation():
     assert len(segments) > 2
 
 
+@pytest.mark.parametrize("text", [
+    "你好！！！世界？？",
+    "！？你好。",
+    "你好。？！[Laughter]世界。",
+    "！？[Laughter]" + "这是一段完整的句子！！！" * 5,
+])
+def test_long_text_preserves_consecutive_and_leading_punctuation(text):
+    segments = split_long_text(text, 20)
+    assert "".join(segments) == text
+    assert all("[Laughter]" in segment or "[" not in segment for segment in segments)
+
+
 def test_every_node_task_builds_the_same_core_request():
     import nodes
     node = nodes.MingT8Task()

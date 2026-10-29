@@ -10,7 +10,8 @@ def split_long_text(text, max_units=120):
     paragraphs = re.split(r"\n\s*\n", text.strip())
     result = []
     for paragraph in paragraphs:
-        units = re.findall(r"\[[^\]]+\]|[^。！？!?；;\n]+[。！？!?；;]?|[\n]", paragraph)
+        # Keep leading and repeated punctuation as well as sentence-ending marks.
+        units = re.findall(r"\[[^\]]+\]|[^。！？!?；;\n]+[。！？!?；;]*|[。！？!?；;]+|[\n]", paragraph)
         current = ""
         for unit in units:
             if current and len(current) + len(unit) > max_units:

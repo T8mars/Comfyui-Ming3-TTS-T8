@@ -3,13 +3,15 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+from filelock import FileLock
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
 def configuration():
     settings_path = PROJECT_ROOT / "settings.local.json"
-    settings = json.loads(settings_path.read_text(encoding="utf-8-sig")) if settings_path.is_file() else {}
+    with FileLock(str(settings_path) + ".lock"):
+        settings = json.loads(settings_path.read_text(encoding="utf-8-sig")) if settings_path.is_file() else {}
     bundled = PROJECT_ROOT / "data"
     development = Path("D:/Ming3-TTS-data")
     fallback = bundled if bundled.exists() or not development.exists() else development
@@ -46,11 +48,12 @@ def save_configuration(values):
     if "cuda_graphs" in values and type(values["cuda_graphs"]) is not bool:
         raise ValueError("CUDA Graph设置必须为开关")
     path = PROJECT_ROOT / "settings.local.json"
-    settings = json.loads(path.read_text(encoding="utf-8-sig")) if path.is_file() else {}
-    settings.update(values)
-    temporary = path.with_suffix(".json.tmp")
-    temporary.write_text(json.dumps(settings, ensure_ascii=False, indent=2), encoding="utf-8")
-    temporary.replace(path)
+    with FileLock(str(path) + ".lock"):
+        settings = json.loads(path.read_text(encoding="utf-8-sig")) if path.is_file() else {}
+        settings.update(values)
+        temporary = path.with_suffix(".json.tmp")
+        temporary.write_text(json.dumps(settings, ensure_ascii=False, indent=2), encoding="utf-8")
+        temporary.replace(path)
     return configuration()
 
 

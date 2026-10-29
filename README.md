@@ -57,6 +57,8 @@ python scripts/fetch_models.py
 
 已完成十任务、69项生成矩阵、17套真实宿主工作流及本机浏览器验收；八段样本已通过用户听音确认。自动转写检查不代替所有音色和情绪的人工评估。
 
+0.1.1完成[20轮交叉审查](docs/review-2026-10-29.md)，修复参考音频状态、任务恢复、文本保真与安装并发等12类问题；64项Python回归及桌面/手机宽度浏览器检查通过。详见[更新记录](CHANGELOG.md)。
+
 ## 来源与许可
 
 本项目原始代码采用 [Apache-2.0](LICENSE)。[Ming官方代码](https://github.com/inclusionAI/Ming-3.0-tts)保留MIT许可；[Comfy权重](https://huggingface.co/Comfy-Org/Ming-3.0-TTS)、[Confucius](https://github.com/T8mars/comfyui-confucius-r2t2-t8)及其他组件各自保留原许可，详见 [第三方声明](THIRD_PARTY_NOTICES.md)。

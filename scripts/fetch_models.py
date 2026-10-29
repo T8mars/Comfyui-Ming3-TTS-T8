@@ -3,6 +3,7 @@ from pathlib import Path
 import argparse
 import hashlib
 import json
+from filelock import FileLock
 
 ROOT=Path(__file__).resolve().parents[1]
 
@@ -14,11 +15,12 @@ def configure_paths(project,destination):
     if not paths["model_path"].is_file() or not (paths["assets_path"]/"campplus.onnx").is_file() or not (paths["asr_root"]/"models/Confucius4-R2T2-GGUF/Confucius4-R2T2-Q8_0.gguf").is_file():
         raise ValueError("Downloaded model layout is incomplete")
     config=project/"settings.local.json"
-    settings=json.loads(config.read_text(encoding="utf-8-sig")) if config.is_file() else {}
-    settings.update({name:str(path) for name,path in paths.items()})
-    temporary=config.with_suffix(".json.tmp")
-    temporary.write_text(json.dumps(settings,ensure_ascii=False,indent=2),encoding="utf-8")
-    temporary.replace(config)
+    with FileLock(str(config)+".lock"):
+        settings=json.loads(config.read_text(encoding="utf-8-sig")) if config.is_file() else {}
+        settings.update({name:str(path) for name,path in paths.items()})
+        temporary=config.with_suffix(".json.tmp")
+        temporary.write_text(json.dumps(settings,ensure_ascii=False,indent=2),encoding="utf-8")
+        temporary.replace(config)
     return settings
 
 

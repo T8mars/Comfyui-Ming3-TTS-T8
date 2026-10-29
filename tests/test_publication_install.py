@@ -30,3 +30,35 @@ def test_model_setup_preserves_other_settings(tmp_path):
     result=configure_paths(project,models)
     assert result["device"]=="cpu" and result["attention_backend"]=="sdpa"
     assert Path(result["assets_path"])==models/"Ming-3.0-tts-tiny"
+
+
+def test_concurrent_component_installations_use_independent_partial_files(tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+    import threading
+    barrier = threading.Barrier(2)
+    first_finished = threading.Event()
+
+    class SynchronizedResponse(io.BytesIO):
+        def __init__(self, payload, second):
+            super().__init__(payload)
+            self.second = second
+
+        def __exit__(self, *args):
+            super().__exit__(*args)
+            barrier.wait(timeout=5)  # Both output handles are closed before replacing.
+            if self.second:
+                assert first_finished.wait(timeout=5)
+
+    target = tmp_path / "component.dll"
+    payload = b"verified component"
+    checksum = hashlib.sha256(payload).hexdigest()
+    with ThreadPoolExecutor(2) as pool:
+        first = pool.submit(install.download_component, target, "unused", len(payload), checksum,
+                            lambda *args, **kwargs: SynchronizedResponse(payload, False))
+        first.add_done_callback(lambda future: first_finished.set())
+        second = pool.submit(install.download_component, target, "unused", len(payload), checksum,
+                             lambda *args, **kwargs: SynchronizedResponse(payload, True))
+        futures = [first, second]
+        assert all(future.result(timeout=10) for future in futures)
+    assert target.read_bytes() == payload
+    assert list(tmp_path.glob("*.part")) == []

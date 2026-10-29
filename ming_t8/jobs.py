@@ -36,8 +36,8 @@ class JobQueue:
         self.lock = threading.RLock()
         self.stopping = False
         # Recover persisted queued work; an interrupted native call is never assumed complete.
-        restored = self.store.list("job", 1000)
-        for job in reversed(restored):
+        restored = self.store.list_by_status("job", ("queued", "running", "cancelling"))
+        for job in restored:
             if job["status"] in ("running", "cancelling"):
                 self.store.update("job", job["id"], status="interrupted", message="上次运行被中断，可保留已完成片段后重试")
             elif job["status"] == "queued":

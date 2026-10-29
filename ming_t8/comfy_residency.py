@@ -116,6 +116,9 @@ def get_engine(**handle):
 def prepare_asr():
     release()
     MODEL_MANAGER.unload()
+    from .config import configuration
+    if not torch.cuda.is_available() or configuration()["device"] == "cpu":
+        return
     try:
         import comfy.model_management as memory
         memory.free_memory(4 * 1024**3, torch.device("cuda:0"))

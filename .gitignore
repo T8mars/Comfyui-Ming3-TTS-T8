@@ -15,6 +15,7 @@ cache/
 *.dll
 *.exe
 settings.local.json
+settings.local.json.lock
 dist/
 data/
 .publishing/

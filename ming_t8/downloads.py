@@ -69,13 +69,17 @@ class Downloads:
             self.state = {"status":"cancelled","message":"下载已停止，已校验的断点仍保留"}
             if self.process is not None and self.process.poll() is None:
                 import psutil
-                parent = psutil.Process(self.process.pid)
-                for child in reversed(parent.children(recursive=True)):
-                    try:
-                        child.terminate()
-                    except psutil.NoSuchProcess:
-                        pass
-                self.process.terminate()
+                try:
+                    parent = psutil.Process(self.process.pid)
+                    for child in reversed(parent.children(recursive=True)):
+                        try:
+                            child.terminate()
+                        except psutil.NoSuchProcess:
+                            pass
+                    self.process.terminate()
+                except (psutil.NoSuchProcess, ProcessLookupError):
+                    # The worker can exit after poll() and before process lookup.
+                    pass
             return self.status()
 
 
