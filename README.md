@@ -6,6 +6,12 @@ Ming 3.0 Tiny 的原生 ComfyUI 节点与本地语音工作台。推理在当前
 
 [模型下载](https://huggingface.co/t8star/Ming3-TTS-Comfy) · [示例工作流](examples) · [问题反馈](https://github.com/T8mars/Comfyui-Ming3-TTS-T8/issues)
 
+## 程序整合包与更新
+
+[下载程序包](https://github.com/T8mars/Comfyui-Ming3-TTS-T8/releases/latest/download/Ming3-TTS-T8-Program.zip)：包含工作台、节点与必要原生组件，**不包含Python环境和任何模型**。完整运行环境与模型单独准备，配好后双击 `启动工作台.cmd`。
+
+默认自动检查并下载程序更新，关闭工作台后，下次通过启动脚本自动安装。也可在设置中手动检查或关闭自动更新，或关闭工作台后运行 `一键更新.cmd`。更新保留Python、模型、设置、声音库和作品，失败会回滚。[安装与更新说明](docs/program-package.md)。
+
 ## 功能
 
 - 完整支持十种任务：内置音色、声音设计、声音克隆、多语种克隆、语气标签、基础属性、情绪、方言、自由指令和多人联合对话。

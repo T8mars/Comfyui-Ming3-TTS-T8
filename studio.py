@@ -31,7 +31,9 @@ def main():
     print(f"\n明 · 本地语音工作台\n{url}\n模型按需加载；关闭此窗口可结束工作台。\n", flush=True)
     if not args.no_browser:
         threading.Timer(1.5, lambda: webbrowser.open(url)).start()
-    uvicorn.run("ming_t8.server:create_app", factory=True, host=host, port=port, log_level="info")
+    from ming_t8.updates import studio_lock
+    with studio_lock():
+        uvicorn.run("ming_t8.server:create_app", factory=True, host=host, port=port, log_level="info")
 
 
 if __name__ == "__main__":

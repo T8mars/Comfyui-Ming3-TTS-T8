@@ -5,6 +5,12 @@ import threading
 from ming_t8 import config
 
 
+def test_program_defaults_are_relative_and_do_not_use_a_development_drive(tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "PROJECT_ROOT", tmp_path)
+    monkeypatch.delenv("MING_T8_DATA", raising=False)
+    assert config.configuration()["data_root"] == str((tmp_path / "data").resolve())
+
+
 def test_concurrent_settings_updates_preserve_all_fields(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "PROJECT_ROOT", tmp_path)
     path = tmp_path / "settings.local.json"

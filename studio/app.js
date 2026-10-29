@@ -772,6 +772,7 @@ async function previewSegments(imported = null) {
 async function refreshStatus() {
   try {
     state.status = await api("/api/status");
+    renderProgramUpdate(state.status.updates);
     const model = state.status.model;
     $("model-status").classList.toggle("ready", model.ready);
     $("model-status").textContent = model.ready ? "模型已就绪" : "准备模型";
@@ -1574,7 +1575,23 @@ bind("unload-models", async () => {
   await api("/api/models/unload", { method: "POST" });
   toast("模型显存已释放，下次生成会重新加载");
 });
+function renderProgramUpdate(value = {}) {
+  $("update-version").textContent = value.current_version ? `v${value.current_version}` : "";
+  $("update-message").textContent = value.message || "点击检查更新，查看新的程序版本";
+  $("auto-program-update").checked = value.automatic !== false;
+  $("auto-program-update").disabled = value.managed === false;
+  const busy = ["checking", "downloading"].includes(value.status);
+  $("check-program-update").disabled = busy;
+  $("download-program-update").hidden = value.status !== "available" || !value.managed;
+  $("update-progress").hidden = value.status !== "downloading";
+  $("update-progress").value = value.progress || 0;
+}
+async function refreshProgramUpdate() { renderProgramUpdate(await api("/api/updates")); }
+bind("check-program-update", async () => renderProgramUpdate(await api("/api/updates/check", {method:"POST"})));
+bind("download-program-update", async () => renderProgramUpdate(await api("/api/updates/download", {method:"POST"})));
+bind("auto-program-update", async () => renderProgramUpdate(await api("/api/updates/preferences", {method:"POST",body:{automatic:$("auto-program-update").checked}})), "change");
 bind("settings-open", async () => {
+  await refreshProgramUpdate();
   await refreshStatus();
   const settings = await api("/api/settings");
   $("settings-info").innerHTML =

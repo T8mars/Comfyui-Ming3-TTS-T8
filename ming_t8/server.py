@@ -48,6 +48,8 @@ def create_app():
 
     @asynccontextmanager
     async def lifespan(app):
+        from .updates import UPDATES
+        UPDATES.start(automatic=True)
         yield
         from .downloads import DOWNLOADS
         if DOWNLOADS.process is not None:
@@ -74,7 +76,8 @@ def create_app():
         from .asr import ASR
         from .engine import MODEL_MANAGER
         from .downloads import DOWNLOADS
-        return {"version": "0.1.1", "model": model_status(), "asr": ASR.available(), "download": DOWNLOADS.status(),
+        from .updates import UPDATES, VERSION
+        return {"version": VERSION, "model": model_status(), "asr": ASR.available(), "download": DOWNLOADS.status(), "updates": UPDATES.status(),
                 "loaded": MODEL_MANAGER.engine is not None, "active_job": jobs.active,
                 "data_root": configuration()["data_root"], "python": f"{sys.version_info.major}.{sys.version_info.minor}"}
 
@@ -108,6 +111,26 @@ def create_app():
     def stop_download():
         from .downloads import DOWNLOADS
         return DOWNLOADS.cancel()
+
+    @app.get("/api/updates")
+    def program_update_status():
+        from .updates import UPDATES
+        return UPDATES.status()
+
+    @app.post("/api/updates/check")
+    def check_program_update():
+        from .updates import UPDATES
+        return UPDATES.start()
+
+    @app.post("/api/updates/download")
+    def download_program_update():
+        from .updates import UPDATES
+        return UPDATES.start(download=True)
+
+    @app.post("/api/updates/preferences")
+    def update_program_preferences(payload: dict):
+        from .updates import UPDATES
+        return UPDATES.set_automatic(payload.get("automatic"))
 
     @app.get("/api/capabilities")
     def get_capabilities():

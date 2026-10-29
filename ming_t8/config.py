@@ -13,9 +13,7 @@ def configuration():
     with FileLock(str(settings_path) + ".lock"):
         settings = json.loads(settings_path.read_text(encoding="utf-8-sig")) if settings_path.is_file() else {}
     bundled = PROJECT_ROOT / "data"
-    development = Path("D:/Ming3-TTS-data")
-    fallback = bundled if bundled.exists() or not development.exists() else development
-    root = Path(os.environ.get("MING_T8_DATA", settings.get("data_root", str(fallback)))).expanduser().resolve()
+    root = Path(os.environ.get("MING_T8_DATA", settings.get("data_root", str(bundled)))).expanduser().resolve()
     defaults = {
         "data_root": str(root),
         "model_path": str(root / "models/Ming-Comfy-INT8/checkpoints/ming_tts_tiny_int8_convrot.safetensors"),

@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.2.0 · 2026-10-29
+
+- 发布独立程序整合包：含工作台、节点和必要原生组件，不含Python环境、模型或用户数据。
+- 启动后自动检查并下载更新，下次通过启动脚本安装；提供设置开关、手动检查和一键更新脚本。
+- 使用GitHub发布资产SHA256和逐文件清单校验；安装需要工作台完全退出，支持失败回滚和中断恢复。
+- 更新保留运行环境、模型、设置、数据库与作品；不自动安装Python依赖。移除开发机器D盘默认路径。
+
+- Publish a program-only bundle with studio, nodes and native components; no Python environment, models or user data.
+- Check and download automatically, apply at the next launcher start, or use the manual update controls/script.
+- Verify the GitHub asset digest and every file; require the studio to close before installation, with rollback and interrupted-install recovery.
+- Preserve environments, models, settings, databases and outputs. Python dependencies are managed separately; remove development-drive defaults.
+
 ## 0.1.1 · 2026-10-29
 
 **中文**

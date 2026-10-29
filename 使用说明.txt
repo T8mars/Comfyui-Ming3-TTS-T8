@@ -1,0 +1,19 @@
+明 · 本地语音工作台（程序包）
+
+这个ZIP只包含程序，不包含Python运行环境和模型。
+请将配套完整环境与模型另外配置好，再开始使用。
+
+1. 将程序解压到独立文件夹。
+2. 配套环境放在runtime目录，应能找到runtime\python.exe。
+   也支持runtime\Scripts\python.exe、python_embeded\python.exe，
+   或通过MING_PYTHON环境变量指定已有解释器。
+3. 双击“启动工作台.cmd”，在设置中选择本机模型路径。
+4. 有新版本时程序会自动下载更新，关闭工作台窗口后，
+   再双击启动脚本即可安装。也可关闭自动更新，或运行“一键更新.cmd”。
+
+更新保留Python环境、模型、设置、声音库和作品。
+更新不自动安装或升级Python依赖。请使用配套的完整环境。
+
+项目：https://github.com/T8mars/Comfyui-Ming3-TTS-T8
+模型：https://huggingface.co/t8star/Ming3-TTS-Comfy
+详细说明：docs\program-package.md

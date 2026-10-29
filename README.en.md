@@ -6,6 +6,12 @@ Native ComfyUI nodes and a local speech studio for Ming 3.0 Tiny. Both run the s
 
 [Models](https://huggingface.co/t8star/Ming3-TTS-Comfy) · [Example workflows](examples) · [Issues](https://github.com/T8mars/Comfyui-Ming3-TTS-T8/issues)
 
+## Program bundle and updates
+
+[Download the program bundle](https://github.com/T8mars/Comfyui-Ming3-TTS-T8/releases/latest/download/Ming3-TTS-T8-Program.zip). It includes the studio, nodes and required native components, **without a Python environment or model files**. Prepare the separate environment and models, then run `启动工作台.cmd`.
+
+The studio checks for and downloads program updates automatically. Close it and use the launcher again to install. Settings provide manual checks and an automatic-update switch; `一键更新.cmd` updates while the studio is closed. Updates preserve Python, models, settings, voices and outputs, with rollback on failure. See the [setup and update guide](docs/program-package.md).
+
 ## Features
 
 - All ten tasks: preset voices, voice design, cloning, multilingual cloning, paralinguistic tags, basic attributes, emotions, dialects, freeform instructions and joint dialogue.
