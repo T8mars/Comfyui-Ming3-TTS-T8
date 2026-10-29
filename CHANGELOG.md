@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.2.2 · 2026-10-29
+
+- 更新前拒绝文件/目录结构冲突，避免半更新破坏回滚；此类结构迁移需解压到独立目录。
+- 备份或事务日志准备失败时，确认旧程序完整后仍可启动；提交/回滚后记录暂时无法删除，不再阻挡完整程序或重复安装。
+- 工程省略参数恢复官方默认；带角色信息但无界面元数据的Podcast保留台词和角色名。
+- 丢失、损坏或被改动的试听缓存自动重新生成；新片段保存输出SHA256，旧无哈希记录保守重新生成。
+- 验证：138项Python测试、16组真实Edge检查、十任务/参考状态DOM；Windows真实元数据句柄占用恢复通过。
+
+- Reject incompatible file/directory layouts before mutation; migrate these releases into a separate folder.
+- Keep a verified old program usable after preparation failures; locked post-commit/rollback metadata no longer blocks a complete program or triggers repeated installation.
+- Restore omitted project controls to official defaults and retain Podcast scripts/names without UI metadata.
+- Regenerate missing, damaged or modified take caches; record output SHA256 for new segments and regenerate older unhashed records.
+- Validation: 138 Python tests, 16 real Edge checks, task/reference DOM and real Windows metadata-handle locks.
+
 ## 0.2.1 · 2026-10-29
 
 - 修复Windows仅大小写变化的文件改名更新；继续拒绝真实目录链接越界。

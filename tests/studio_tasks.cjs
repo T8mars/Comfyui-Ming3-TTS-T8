@@ -75,6 +75,17 @@ const source=fs.readFileSync(path.join(root,"studio/app.js"),"utf8");
  app.setView("batch");$("main-text").value="批量草稿单独保留。";app.state.batch=[{request:{task:"voice_design",style:"女声",text:"已经编辑的片段。"}}];
  app.setView("single");$("main-text").value="单句继续编辑。";app.setView("batch");
  assert.equal($("main-text").value,"批量草稿单独保留。");assert.equal(app.state.batch[0].request.text,"已经编辑的片段。");
+ app.setView("single");$("cfg").value=7;$("flow-steps").value=32;$("temperature").value=.8;$("seed").value=99;
+ await app.loadProject({request:{task:"ip",text:"省略的参数应恢复默认值。",ip:"灵小柔"}});
+ const defaults=app.request();
+ assert.equal(defaults.cfg_scale,2,"a minimal project must not inherit the previous CFG");
+ assert.equal(defaults.flow_steps,10);assert.equal(defaults.temperature,0);assert.equal(defaults.seed,null);assert.equal(defaults.stop_threshold,null);
+ assert.equal(app.directorRequest({role:app.state.roles[0].id,text:"重做默认种子的台词",variation:1}).seed,1235);
+ const podcast={request:{task:"podcast",text:"speaker_1: 你好。\nspeaker_2: 很高兴见到你。",prompt_wav:["a.wav","b.wav"],prompt_text:["甲的录音","乙的录音"],seed:23},
+   characters:[{id:"a",name:"甲",prompt_wav:"a.wav",prompt_text:"甲的录音"},{id:"b",name:"乙",prompt_wav:"b.wav",prompt_text:"乙的录音"}]};
+ await app.loadProject(podcast);
+ assert.equal(app.state.lines.length,2,"valid podcast character metadata without UI lines must retain the script");
+ assert.equal(app.state.roles[0].name,"甲");assert.equal(app.dialoguePayload().request.text,podcast.request.text);
  app.setView("single");$("main-text").value="";
  try {app.request();throw new Error("Empty input accepted");}catch(error){assert.equal(error.field,"main-text");app.showFieldError(error);}
  assert.equal($("main-text").getAttribute("aria-invalid"),"true");assert.match(w.document.querySelector("[data-field-error]").textContent,/请先写下/);

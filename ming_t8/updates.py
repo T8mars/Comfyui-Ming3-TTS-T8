@@ -17,7 +17,7 @@ import zipfile
 
 from filelock import FileLock, Timeout
 
-VERSION = "0.2.1"
+VERSION = "0.2.2"
 ROOT = Path(__file__).resolve().parents[1]
 REPOSITORY = "T8mars/Comfyui-Ming3-TTS-T8"
 ASSET_NAME = "Ming3-TTS-T8-Program.zip"
@@ -297,7 +297,9 @@ def _rollback(root, journal):
             if not path.is_file() or digest(path) != item["sha256"]:
                 atomic_bytes(path, program_path(backup, item["path"]).read_bytes())
         else:
-            path.unlink(missing_ok=True)
+            # No pre-existing directory belongs to a new file's rollback entry.
+            if not path.is_dir():
+                path.unlink(missing_ok=True)
 
 
 def _verify_program_files(root, manifest):
@@ -305,6 +307,79 @@ def _verify_program_files(root, manifest):
         source = program_path(root, item["path"])
         if source.stat().st_size != item["size"] or digest(source) != item["sha256"]:
             raise UpdateError("程序文件校验失败")
+
+
+def _verify_installed_program(root, expected_version=None, expected_manifest_hash=None):
+    value = (Path(root) / "program-manifest.json").read_bytes()
+    manifest = validate_manifest(json.loads(value), expected_version)
+    if expected_manifest_hash and hashlib.sha256(value).hexdigest() != expected_manifest_hash:
+        raise UpdateError("已安装程序清单与提交记录不一致")
+    _verify_program_files(root, manifest)
+    return manifest
+
+
+def _verify_destination_layout(root, manifest):
+    root = Path(root).resolve()
+    for item in manifest["files"]:
+        target = program_path(root, item["path"])
+        if target.exists() and not target.is_file():
+            raise UpdateError(f"程序结构冲突：{item['path']}当前是目录，请将新程序包解压到独立目录迁移")
+        parent = target.parent
+        while parent != root:
+            if parent.exists() and not parent.is_dir():
+                raise UpdateError(f"程序结构冲突：{parent.relative_to(root)}当前是文件，请将新程序包解压到独立目录迁移")
+            parent = parent.parent
+
+
+def _preparation_failed(root, journal_path, token, error):
+    # No program mutation has started. Only a fully verified old program may boot.
+    try:
+        _verify_installed_program(root)
+    except (ValueError, OSError, KeyError, TypeError) as previous_error:
+        raise UpdateError("更新准备失败，且无法确认原程序完整；请保留更新记录并重新解压程序包") from previous_error
+    try:
+        journal_path.unlink(missing_ok=True)
+    except OSError as cleanup_error:
+        _cleanup_warning(root, [str(cleanup_error)])
+    if not journal_path.exists():
+        try:
+            if not _remove_transaction(root, "backups", token):
+                # A failed marker write can leave only this call's empty directory.
+                directory = _owned_directory(root, "backups", token)
+                if directory.is_dir() and not any(directory.iterdir()):
+                    directory.rmdir()
+        except (ValueError, OSError) as cleanup_error:
+            _cleanup_warning(root, [str(cleanup_error)])
+    try:
+        write_json(Path(root) / ".updates/last-update-error.json", {"message": str(error), "phase": "preparing", "retryable": True})
+    except OSError:
+        pass
+    raise UpdateRolledBack(f"更新准备未能完成，原程序完整且未被修改，可继续使用；请检查磁盘空间和目录权限后重试：{error}") from error
+
+
+def _finish_committed(root, journal_path, pending_path, journal):
+    """A complete new program may boot even if its metadata is temporarily locked."""
+    try:
+        installed = _verify_installed_program(root, journal.get("target_version"), journal.get("manifest_sha256"))
+    except (ValueError, OSError, KeyError, TypeError) as error:
+        raise UpdateError("已提交更新的程序完整性验证失败，已保留事务记录，请重新解压程序包") from error
+    if pending_path.exists():
+        try:
+            pending = json.loads(pending_path.read_text(encoding="utf-8"))
+            same_transaction = (pending.get("stage") == journal["stage"] and version_key(pending.get("version")) == version_key(installed["version"]) if journal.get("stage")
+                                else version_key(pending.get("version")) == version_key(installed["version"]))
+            if same_transaction:
+                pending_path.unlink()
+        except (ValueError, OSError, AttributeError, KeyError) as error:
+            _cleanup_warning(root, [str(error)])
+            return False
+    try:
+        journal_path.unlink()
+    except OSError as error:
+        _cleanup_warning(root, [str(error)])
+        return False
+    _cleanup_transactions(root, journal.get("backup"))
+    return True
 
 
 def _reject_unusable_pending(root, pending_path, error):
@@ -336,10 +411,20 @@ def apply_pending(root=ROOT):
         recovered_backup = None
         if journal_path.exists():
             journal = json.loads(journal_path.read_text(encoding="utf-8"))
-            if journal.get("phase") != "committed":
+            if journal.get("phase") == "committed":
+                if not _finish_committed(root, journal_path, pending_path, journal):
+                    return False
+                if not pending_path.exists():
+                    return False
+            else:
                 _rollback(root, journal)
-            journal_path.unlink()
-            recovered_backup = journal.get("backup")
+                _verify_installed_program(root)
+                try:
+                    journal_path.unlink()
+                except OSError as error:
+                    _cleanup_warning(root, [str(error)])
+                    return False
+                recovered_backup = journal.get("backup")
         if not pending_path.exists():
             _cleanup_transactions(root, recovered_backup)
             return False
@@ -350,6 +435,7 @@ def apply_pending(root=ROOT):
             if version_key(manifest["version"]) < version_key(current_version(root)):
                 raise UpdateError("更新包版本低于当前版本，已拒绝回退安装")
             _verify_program_files(staged, manifest)
+            _verify_destination_layout(root, manifest)
         except (ValueError, OSError, KeyError, TypeError) as error:
             _reject_unusable_pending(root, pending_path, error)
         previous = root / "program-manifest.json"
@@ -360,20 +446,25 @@ def apply_pending(root=ROOT):
         names = sorted(new_names | removed) + ["program-manifest.json"]
         token = uuid.uuid4().hex
         backup = _owned_directory(root, "backups", token)
-        _mark_transaction(root, "backups", token)
         entries = []
-        for name in names:
-            path = program_path(root, name)
-            exists = path.is_file()
-            item = {"path": name, "existed": exists}
-            if exists:
-                item["sha256"] = digest(path)
-                destination = program_path(backup, name)
-                destination.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copyfile(path, destination)
-            entries.append(item)
-        journal = {"phase": "applying", "backup": token, "files": entries}
-        write_json(journal_path, journal)
+        try:
+            _mark_transaction(root, "backups", token)
+            for name in names:
+                path = program_path(root, name)
+                exists = path.is_file()
+                item = {"path": name, "existed": exists}
+                if exists:
+                    item["sha256"] = digest(path)
+                    destination = program_path(backup, name)
+                    destination.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copyfile(path, destination)
+                entries.append(item)
+            journal = {"phase": "applying", "backup": token, "files": entries,
+                       "stage": pending["stage"], "target_version": manifest["version"],
+                       "manifest_sha256": digest(staged / "program-manifest.json")}
+            write_json(journal_path, journal)
+        except (ValueError, OSError) as error:
+            _preparation_failed(root, journal_path, token, error)
         try:
             for item in manifest["files"]:
                 target = program_path(root, item["path"])
@@ -386,12 +477,15 @@ def apply_pending(root=ROOT):
             write_json(journal_path, journal)
         except Exception as error:
             _rollback(root, journal)
-            journal_path.unlink(missing_ok=True)
-            _cleanup_transactions(root, token)
+            _verify_installed_program(root)
+            try:
+                journal_path.unlink(missing_ok=True)
+            except OSError as cleanup_error:
+                _cleanup_warning(root, [str(cleanup_error)])
+            if not journal_path.exists():
+                _cleanup_transactions(root, token)
             raise UpdateRolledBack(f"更新未能安装，已恢复原程序，可稍后重试：{error}") from error
-        pending_path.unlink()
-        journal_path.unlink()
-        _cleanup_transactions(root, token)
+        _finish_committed(root, journal_path, pending_path, journal)
         return True
 
 
@@ -431,7 +525,10 @@ class Updates:
                 try:
                     value = json.loads(pending.read_text(encoding="utf-8"))
                     version_key(value["version"])
-                    result.update(status="ready", latest_version=value["version"], message="程序更新已下载，关闭工作台后重新启动即可安装")
+                    if version_key(value["version"]) > version_key(result["current_version"]):
+                        result.update(status="ready", latest_version=value["version"], message="程序更新已下载，关闭工作台后重新启动即可安装")
+                    elif version_key(value["version"]) == version_key(result["current_version"]):
+                        result.update(status="up_to_date", latest_version=value["version"], message="当前程序已更新，部分更新记录将在下次启动时清理")
                 except (ValueError, OSError, KeyError, TypeError):
                     result.update(status="failed", message="待更新记录损坏，请重新下载程序更新；当前程序未被修改")
             return result

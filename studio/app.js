@@ -287,12 +287,12 @@ function updateTask(options={}) {
 }
 function advanced() {
   const value = {
-    seed: Number($("seed").value),
+    seed: $("seed").value.trim() === "" ? null : Number($("seed").value),
     cfg_scale: Number($("cfg").value),
     flow_steps: Number($("flow-steps").value),
     temperature: Number($("temperature").value),
     sigma: Number($("sigma").value),
-    stop_threshold: Number($("stop-threshold").value),
+    stop_threshold: $("stop-threshold").value.trim() === "" ? null : Number($("stop-threshold").value),
     log_every_n_steps: Number($("log-every").value),
   };
   const minimum = Number($("minimum").value),
@@ -412,7 +412,7 @@ function directorRequest(line) {
   const role = state.roles.find(item => item.id === line.role);
   if (!role || !line.text.trim()) throw new Error("请先选择角色并填写台词");
   const value = {text:line.text,...advanced()};
-  if (line.variation) value.seed += line.variation;
+  if (line.variation) value.seed = (value.seed ?? 1234) + line.variation;
   if (role.mode === "ip") return {...value,task:"ip",ip:role.ip || "灵小柔"};
   if (role.mode === "voice_design") {
     if (!role.style?.trim()) throw new Error(`${role.name} 还没有填写声音设计`);
@@ -991,7 +991,8 @@ async function saveProject() {
   toast("工程已保存，并已打包参考音频");
 }
 async function loadProject(project) {
-  if (project.characters?.length) {
+  if (project.characters?.length && project.ui?.lines?.length &&
+      (project.request?.task === "podcast" || project.ui?.dialogue_mode === "director")) {
     setView("dialogue");
     state.dialogueMode=project.ui?.dialogue_mode||"joint";
     const ids=new Map();
@@ -1013,10 +1014,13 @@ async function loadProject(project) {
     state.batchSignature=JSON.stringify(request("批量模板"));
   } else if (project.request?.task === "podcast") {
     setView("dialogue");
+    state.dialogueMode = "joint";
+    document.querySelectorAll("[data-dialogue-mode]").forEach(button => button.classList.toggle("active", button.dataset.dialogueMode === "joint"));
+    updateTask({preserveInputs:true});
     const req = project.request;
     state.roles = req.prompt_wav.map((path, index) => ({
       id: crypto.randomUUID(),
-      name: `角色 ${index + 1}`,
+      name: project.characters?.[index]?.name || `角色 ${index + 1}`,
       reference: { path, name: `角色 ${index + 1}参考录音` },
       text: req.prompt_text[index],
       manual: true,
@@ -1042,7 +1046,8 @@ async function loadProject(project) {
   const req = project.ui?.generation_settings || project.request || project.segments?.[0]?.request;
   if (req) {
     const fields = {seed:"seed",cfg_scale:"cfg",flow_steps:"flow-steps",temperature:"temperature",sigma:"sigma",stop_threshold:"stop-threshold",log_every_n_steps:"log-every"};
-    for (const [key,id] of Object.entries(fields)) if (req[key] != null) $(id).value = req[key];
+    const defaults = {seed:"",cfg_scale:2,flow_steps:10,temperature:0,sigma:.25,stop_threshold:"",log_every_n_steps:0};
+    for (const [key,id] of Object.entries(fields)) $(id).value = req[key] ?? defaults[key];
     $("minimum").value = req.min_generation_frames ?? req.min_decode_steps ?? 0;
     $("maximum").value = req.max_generation_frames ?? req.max_decode_steps ?? 0;
   }

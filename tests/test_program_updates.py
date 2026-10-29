@@ -405,3 +405,172 @@ def test_no_pending_start_cleans_legacy_caches_and_keeps_latest_owned_backup(tmp
     assert not list((tmp_path / ".updates/staged").iterdir())
     assert latest.is_dir() and not older.exists()
     assert (unknown / "personal.txt").read_bytes() == b"leave unknown backup"
+
+
+@pytest.mark.parametrize("direction", ["directory_to_file", "file_to_directory"])
+def test_layout_conflicts_are_rejected_before_any_program_mutation(tmp_path, direction):
+    old = {"studio.py": b"old program", **({"studio/resource/child.js": b"old child"} if direction == "directory_to_file" else {"studio/resource": b"old resource"})}
+    new = {"studio.py": b"new program", **({"studio/resource": b"new resource"} if direction == "directory_to_file" else {"studio/resource/child.js": b"new child"})}
+    for name, value in old.items():
+        target = tmp_path / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(value)
+    updates.write_json(tmp_path / "program-manifest.json", manifest("0.2.0", old))
+    before = (tmp_path / "program-manifest.json").read_bytes()
+    stage(tmp_path, package(files=new))
+    with pytest.raises(updates.UpdateRolledBack, match="独立目录"):
+        updates.apply_pending(tmp_path)
+    assert {name: (tmp_path / name).read_bytes() for name in old} == old
+    assert (tmp_path / "program-manifest.json").read_bytes() == before
+    assert not (tmp_path / ".updates/journal.json").exists()
+    assert not (tmp_path / ".updates/pending.json").exists()
+
+
+@pytest.mark.parametrize("direction", ["directory_to_file", "file_to_directory"])
+def test_launcher_starts_the_intact_old_program_after_layout_conflict(tmp_path, direction):
+    source = Path(__file__).resolve().parents[1]
+    installed(tmp_path)
+    for name in ("scripts/update_program.py", "ming_t8/updates.py", "ming_t8/__init__.py"):
+        target = tmp_path / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(source / name, target)
+    if direction == "directory_to_file":
+        (tmp_path / "studio/resource").mkdir(parents=True)
+        (tmp_path / "studio/resource/child.js").write_bytes(b"old child")
+        old_extra, new_extra = {"studio/resource/child.js": b"old child"}, {"studio/resource": b"new resource"}
+    else:
+        (tmp_path / "studio").mkdir()
+        (tmp_path / "studio/resource").write_bytes(b"old resource")
+        old_extra, new_extra = {"studio/resource": b"old resource"}, {"studio/resource/child.js": b"new child"}
+    updates.write_json(tmp_path / "program-manifest.json", manifest("0.2.0", {"studio.py": b"old program", **old_extra}))
+    stage(tmp_path, package(files={"studio.py": b"new program", **new_extra}))
+    result = subprocess.run([sys.executable, "-X", "utf8", str(tmp_path / "scripts/update_program.py"), "--apply-pending"],
+                            capture_output=True, text=True, encoding="utf-8", timeout=10)
+    assert result.returncode == 0, (result.stdout, result.stderr)
+    assert "独立目录" in result.stdout
+    assert (tmp_path / "studio.py").read_bytes() == b"old program"
+
+
+@pytest.mark.parametrize("failure", ["copy", "journal"])
+def test_preparation_failure_keeps_old_program_launchable_and_pending_for_retry(tmp_path, monkeypatch, failure):
+    installed(tmp_path)
+    stage(tmp_path, package())
+    before = (tmp_path / "program-manifest.json").read_bytes()
+    if failure == "copy":
+        monkeypatch.setattr(updates.shutil, "copyfile", lambda *args, **kwargs: (_ for _ in ()).throw(OSError("disk full")))
+    else:
+        original = updates.write_json
+
+        def fail_journal(path, value):
+            if Path(path).name == "journal.json":
+                raise OSError("disk full writing journal")
+            return original(path, value)
+
+        monkeypatch.setattr(updates, "write_json", fail_journal)
+    with pytest.raises(updates.UpdateRolledBack, match="准备"):
+        updates.apply_pending(tmp_path)
+    assert (tmp_path / "studio.py").read_bytes() == b"old program"
+    assert (tmp_path / "program-manifest.json").read_bytes() == before
+    assert (tmp_path / ".updates/pending.json").exists()
+    assert not (tmp_path / ".updates/journal.json").exists()
+
+
+@pytest.mark.parametrize("locked_name", ["pending.json", "journal.json"])
+def test_committed_metadata_cleanup_failure_does_not_block_or_reinstall(tmp_path, monkeypatch, locked_name):
+    installed(tmp_path)
+    stage(tmp_path, package())
+    original = Path.unlink
+
+    def locked_record(path, *args, **kwargs):
+        if path == tmp_path / ".updates" / locked_name:
+            raise PermissionError("metadata held by antivirus")
+        return original(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "unlink", locked_record)
+    assert updates.apply_pending(tmp_path)
+    assert updates.current_version(tmp_path) == "0.2.1"
+    assert (tmp_path / "studio.py").read_bytes() == b"new program"
+    backups = {path.name for path in (tmp_path / ".updates/backups").iterdir()}
+    assert not updates.apply_pending(tmp_path)
+    assert {path.name for path in (tmp_path / ".updates/backups").iterdir()} == backups
+    state = updates.Updates(tmp_path).status()
+    assert state["status"] != "ready"
+    if locked_name == "pending.json":
+        assert "已更新" in state["message"]
+    monkeypatch.setattr(Path, "unlink", original)
+    assert not updates.apply_pending(tmp_path)
+    assert not (tmp_path / ".updates/pending.json").exists()
+    assert not (tmp_path / ".updates/journal.json").exists()
+
+
+def test_committed_journal_cannot_hide_corrupt_installed_files(tmp_path):
+    installed(tmp_path)
+    (tmp_path / "studio.py").write_bytes(b"broken installed program")
+    updates.write_json(tmp_path / ".updates/journal.json", {"phase": "committed", "backup": "a" * 32, "files": []})
+    with pytest.raises(updates.UpdateError):
+        updates.apply_pending(tmp_path)
+    assert (tmp_path / ".updates/journal.json").exists()
+
+
+def test_committed_cleanup_preserves_a_newer_pending_transaction(tmp_path, monkeypatch):
+    installed(tmp_path)
+    future_archive = tmp_path / "future.zip"
+    future_archive.write_bytes(package("0.2.2", {"studio.py": b"future program"}))
+    updates.Updates(tmp_path).stage_archive(future_archive, "0.2.2")
+    future = json.loads((tmp_path / ".updates/pending.json").read_text(encoding="utf-8"))
+    stage(tmp_path, package())
+    original = updates.write_json
+
+    def publish_future_after_commit(path, value):
+        original(path, value)
+        if Path(path).name == "journal.json" and value.get("phase") == "committed":
+            original(tmp_path / ".updates/pending.json", future)
+
+    monkeypatch.setattr(updates, "write_json", publish_future_after_commit)
+    assert updates.apply_pending(tmp_path)
+    assert updates.current_version(tmp_path) == "0.2.1"
+    assert json.loads((tmp_path / ".updates/pending.json").read_text(encoding="utf-8")) == future
+    assert (tmp_path / ".updates/staged" / future["stage"] / "studio.py").read_bytes() == b"future program"
+    assert updates.Updates(tmp_path).status()["status"] == "ready"
+
+
+def test_preparation_failure_cannot_hide_a_damaged_old_program(tmp_path, monkeypatch):
+    installed(tmp_path)
+    stage(tmp_path, package())
+    (tmp_path / "studio.py").write_bytes(b"damaged old program")
+    monkeypatch.setattr(updates.shutil, "copyfile", lambda *args, **kwargs: (_ for _ in ()).throw(OSError("disk full")))
+    with pytest.raises(updates.UpdateError) as captured:
+        updates.apply_pending(tmp_path)
+    assert not isinstance(captured.value, updates.UpdateRolledBack)
+    assert (tmp_path / ".updates/pending.json").exists()
+
+
+def test_rollback_metadata_lock_keeps_the_verified_old_program_launchable(tmp_path, monkeypatch):
+    installed(tmp_path)
+    stage(tmp_path, package(files={"studio.py": b"new program", "ming_t8/new.py": b"new module"}))
+    atomic, unlink = updates.atomic_bytes, Path.unlink
+    failed = False
+
+    def fail_once(path, value):
+        nonlocal failed
+        if Path(path) == tmp_path / "ming_t8/new.py" and not failed:
+            failed = True
+            raise PermissionError("simulated locked program component")
+        return atomic(path, value)
+
+    def lock_journal(path, *args, **kwargs):
+        if path == tmp_path / ".updates/journal.json":
+            raise PermissionError("journal held by antivirus")
+        return unlink(path, *args, **kwargs)
+
+    monkeypatch.setattr(updates, "atomic_bytes", fail_once)
+    monkeypatch.setattr(Path, "unlink", lock_journal)
+    with pytest.raises(updates.UpdateRolledBack):
+        updates.apply_pending(tmp_path)
+    assert (tmp_path / "studio.py").read_bytes() == b"old program"
+    journal = json.loads((tmp_path / ".updates/journal.json").read_text(encoding="utf-8"))
+    assert (tmp_path / ".updates/backups" / journal["backup"]).exists()
+    assert not updates.apply_pending(tmp_path)
+    monkeypatch.setattr(Path, "unlink", unlink)
+    assert updates.apply_pending(tmp_path)
+    assert (tmp_path / "studio.py").read_bytes() == b"new program"

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 from pathlib import Path
 import queue
 import threading
@@ -17,6 +18,14 @@ from .config import data_directory
 from .storage import Store
 
 TERMINAL = {"complete", "needs_review", "failed", "cancelled", "interrupted"}
+
+
+def audio_digest(path):
+    value = hashlib.sha256()
+    with Path(path).open("rb") as stream:
+        for block in iter(lambda: stream.read(8 * 1024**2), b""):
+            value.update(block)
+    return value.hexdigest()
 
 
 def job_error_message(error):
@@ -138,6 +147,30 @@ class JobQueue:
                     self.active = None
                 self.pending.task_done()
 
+    def _completed_audio(self, identifier, index, identity, sample_rate):
+        """A take is an optional cache, never a prerequisite for a new generation."""
+        if not isinstance(identifier, str) or not identifier.isalnum() or isinstance(index, bool):
+            return None
+        try:
+            records = self.store.get("job", identifier).get("completed_segments", [])
+            index = int(index)
+            if not 0 <= index < len(records):
+                return None
+            record = records[index]
+            if record.get("identity") != identity or record.get("truncated") or not record.get("audio_sha256"):
+                return None
+            folder = (data_directory("jobs") / identifier).resolve()
+            source = (folder / record["file"]).resolve()
+            if source.parent != folder or not source.is_file() or audio_digest(source) != record["audio_sha256"]:
+                return None
+            samples, rate = sf.read(str(source), dtype="float32")
+            metrics = record["metrics"]
+            if rate != sample_rate or samples.ndim != 1 or not samples.size or not np.isfinite(samples).all() or not isinstance(metrics, dict):
+                return None
+            return samples, metrics
+        except (KeyError, ValueError, TypeError, OSError, RuntimeError):
+            return None
+
     def _execute(self, identifier, payload):
         started = time.monotonic()
         from .engine import MODEL_MANAGER, GenerationCancelled
@@ -194,21 +227,15 @@ class JobQueue:
 
             # Retry can reuse exact completed segments, but never a partial or truncated file.
             reused = False
-            take = segment.get("reuse_from") or {}
+            take = segment.get("reuse_from")
+            take = take if isinstance(take, dict) else {}
             previous_id = take.get("job_id") or payload.get("retry_of")
             if previous_id:
-                previous = self.store.get("job", previous_id)
-                completed = previous.get("completed_segments", [])
-                prior_index = int(take.get("segment_index",0)) if take else index
-                if 0 <= prior_index < len(completed) and completed[prior_index].get("identity") == identity and not completed[prior_index].get("truncated"):
-                    prior_file = data_directory("jobs") / previous_id / completed[prior_index]["file"]
-                    if prior_file.is_file():
-                        samples, rate = sf.read(str(prior_file), dtype="float32")
-                        if rate == engine.sample_rate:
-                            sf.write(str(segment_path), samples, rate, subtype="FLOAT")
-                            waveform = samples
-                            measurement = completed[prior_index]["metrics"]
-                            reused = True
+                cached = self._completed_audio(previous_id, take.get("segment_index", 0) if take else index, identity, engine.sample_rate)
+                if cached is not None:
+                    waveform, measurement = cached
+                    sf.write(str(segment_path), waveform, engine.sample_rate, subtype="FLOAT")
+                    reused = True
             if not reused:
                 output, measurement = engine.generate(request, output_path=str(segment_path), progress=segment_progress,
                                                        audio_callback=chunk_callback if payload.get("streaming", False) else None)
@@ -219,6 +246,7 @@ class JobQueue:
             rate = engine.sample_rate
             start_ms, end_ms = round(cursor * 1000 / rate), round((cursor + len(waveform)) * 1000 / rate)
             record = {"file": segment_path.name, "request": request.to_dict(), "metrics": measurement,
+                      "audio_sha256": audio_digest(segment_path),
                       "start_ms": start_ms, "end_ms": end_ms, "text": request.text,
                       "truncated": measurement.get("truncated", False), "reused": reused, "identity": identity}
             records.append(record)
