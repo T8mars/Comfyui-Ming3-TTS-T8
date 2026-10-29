@@ -17,7 +17,7 @@ import zipfile
 
 from filelock import FileLock, Timeout
 
-VERSION = "0.2.0"
+VERSION = "0.2.1"
 ROOT = Path(__file__).resolve().parents[1]
 REPOSITORY = "T8mars/Comfyui-Ming3-TTS-T8"
 ASSET_NAME = "Ming3-TTS-T8-Program.zip"
@@ -110,7 +110,7 @@ def program_path(root, relative):
     if not target.is_relative_to(root) or target == root:
         raise UpdateError("更新路径超出程序目录")
     actual = target.relative_to(root).as_posix()
-    if actual != relative:
+    if os.path.normcase(actual) != os.path.normcase(relative):
         raise UpdateError("更新路径不能经过符号链接")
     return target
 
@@ -169,9 +169,119 @@ def _owned_directory(root, category, token):
     if not base.is_relative_to(root / ".updates"):
         raise UpdateError("更新事务目录不能经过符号链接")
     result = (base / token).resolve()
-    if result.parent != base:
+    if result.parent != base or result.name != token:
         raise UpdateError("更新事务目录超出范围")
     return result
+
+
+def _mark_transaction(root, category, token):
+    directory = _owned_directory(root, category, token)
+    write_json(directory / ".transaction.json", {"schema": 1, "kind": "ming-t8-update-transaction", "category": category, "token": token})
+
+
+def _cleanup_warning(root, messages):
+    try:
+        write_json(Path(root) / ".updates/cleanup-warning.json", {"message": "部分更新缓存暂时无法清理，可在下次更新后重试", "details": messages})
+    except OSError:
+        pass
+
+
+def _transaction_tree(root, category, token):
+    """Return an owned, fully inspected tree; never follow a reparse point."""
+    root = Path(root).resolve()
+    raw = root / ".updates" / category / token
+    target = _owned_directory(root, category, token)
+    if os.path.normcase(str(raw)) != os.path.normcase(str(target)):
+        raise UpdateError("缓存目录不能经过符号链接")
+    marker = target / ".transaction.json"
+    if marker.is_file():
+        value = json.loads(marker.read_text(encoding="utf-8"))
+        if value != {"schema": 1, "kind": "ming-t8-update-transaction", "category": category, "token": token}:
+            return None
+    else:
+        # Recognize the complete program caches written by 0.2.0.
+        try:
+            validate_manifest(json.loads((target / "program-manifest.json").read_text(encoding="utf-8")))
+        except (ValueError, OSError):
+            return None
+    for parent, folders, files in os.walk(target, followlinks=False):
+        for name in folders + files:
+            item = Path(parent) / name
+            info = item.lstat()
+            if item.is_symlink() or getattr(info, "st_file_attributes", 0) & 0x400:
+                raise UpdateError("缓存包含符号链接或Windows重解析点，已保留")
+            if not item.resolve().is_relative_to(target):
+                raise UpdateError("缓存路径超出事务目录")
+            relative = item.relative_to(target).as_posix()
+            if item.is_dir():
+                if relative not in {"components", "components/confucius"} and not is_program_path(relative + "/placeholder.py"):
+                    return None
+            elif relative not in {"program-manifest.json", ".transaction.json"} and not is_program_path(relative):
+                return None
+    # Verify the root itself too: os.walk does not inspect its starting directory.
+    if target.is_symlink() or getattr(target.lstat(), "st_file_attributes", 0) & 0x400:
+        raise UpdateError("缓存根目录是重解析点，已保留")
+    return target
+
+
+def _remove_transaction(root, category, token):
+    target = _transaction_tree(root, category, token)
+    if target is None:
+        return False
+    shutil.rmtree(target)
+    return True
+
+
+def _cleanup_transactions(root, keep_backup=None):
+    """Best effort after commit/rollback; cleanup can never undo a valid program."""
+    root = Path(root).resolve()
+    messages = []
+    try:
+        with FileLock(str(root / ".updates/download.lock"), timeout=0):
+            protected = {"staged": set(), "backups": set()}
+            for name, category, key in (("pending.json", "staged", "stage"), ("journal.json", "backups", "backup")):
+                path = root / ".updates" / name
+                if path.exists():
+                    value = json.loads(path.read_text(encoding="utf-8"))
+                    token = value[key]
+                    _owned_directory(root, category, token)
+                    protected[category].add(token)
+            backup_root = root / ".updates/backups"
+            if keep_backup is None and backup_root.is_dir():
+                candidates = []
+                for item in backup_root.iterdir():
+                    if re.fullmatch(r"[0-9a-f]{32}", item.name):
+                        try:
+                            if _transaction_tree(root, "backups", item.name) is not None:
+                                candidates.append(item)
+                        except (ValueError, OSError) as error:
+                            messages.append(str(error))
+                if candidates:
+                    keep_backup = max(candidates, key=lambda item: item.stat().st_mtime_ns).name
+            if keep_backup:
+                protected["backups"].add(keep_backup)
+            for category in ("staged", "backups"):
+                directory = root / ".updates" / category
+                if not directory.exists():
+                    continue
+                if directory.resolve() != directory:
+                    raise UpdateError("缓存父目录不能经过符号链接")
+                for item in directory.iterdir():
+                    if not re.fullmatch(r"[0-9a-f]{32}", item.name) or item.name in protected[category]:
+                        continue
+                    try:
+                        _remove_transaction(root, category, item.name)
+                    except (ValueError, OSError) as error:
+                        messages.append(str(error))
+    except (ValueError, OSError, KeyError, TypeError, Timeout) as error:
+        messages.append(str(error))
+    if messages:
+        _cleanup_warning(root, messages)
+    else:
+        try:
+            (root / ".updates/cleanup-warning.json").unlink(missing_ok=True)
+        except OSError:
+            pass
 
 
 def _rollback(root, journal):
@@ -190,6 +300,32 @@ def _rollback(root, journal):
             path.unlink(missing_ok=True)
 
 
+def _verify_program_files(root, manifest):
+    for item in manifest["files"]:
+        source = program_path(root, item["path"])
+        if source.stat().st_size != item["size"] or digest(source) != item["sha256"]:
+            raise UpdateError("程序文件校验失败")
+
+
+def _reject_unusable_pending(root, pending_path, error):
+    # This is called only before any program mutation, after journal recovery.
+    # Do not allow a failed recovery or an incomplete old installation to boot.
+    try:
+        previous = validate_manifest(json.loads((root / "program-manifest.json").read_text(encoding="utf-8")))
+        _verify_program_files(root, previous)
+    except (ValueError, OSError, KeyError, TypeError) as previous_error:
+        raise UpdateError("待更新文件不可用，且无法确认原程序完整；已保留更新记录，请重新解压程序包") from previous_error
+    rejected = pending_path.with_name(f"rejected-pending-{uuid.uuid4().hex}.json")
+    try:
+        pending_path.replace(rejected)
+        write_json(root / ".updates/last-update-error.json", {"message": str(error), "pending_record": rejected.name})
+    except OSError:
+        # The verified old installation is still safe even if a diagnostic cannot be written.
+        pass
+    _cleanup_transactions(root)
+    raise UpdateRolledBack(f"待更新文件损坏或不可用，原程序完整且未被修改，可继续使用并重新下载更新：{error}") from error
+
+
 def apply_pending(root=ROOT):
     """Called by the launcher while no studio/native DLL process owns the files."""
     root = Path(root).resolve()
@@ -197,29 +333,34 @@ def apply_pending(root=ROOT):
     updates.mkdir(parents=True, exist_ok=True)
     with studio_lock(root), FileLock(str(updates / "update.lock"), timeout=0):
         journal_path, pending_path = updates / "journal.json", updates / "pending.json"
+        recovered_backup = None
         if journal_path.exists():
             journal = json.loads(journal_path.read_text(encoding="utf-8"))
             if journal.get("phase") != "committed":
                 _rollback(root, journal)
             journal_path.unlink()
+            recovered_backup = journal.get("backup")
         if not pending_path.exists():
+            _cleanup_transactions(root, recovered_backup)
             return False
-        pending = json.loads(pending_path.read_text(encoding="utf-8"))
-        staged = _owned_directory(root, "staged", pending["stage"])
-        manifest = validate_manifest(json.loads((staged / "program-manifest.json").read_text(encoding="utf-8")), pending["version"])
-        if version_key(manifest["version"]) < version_key(current_version(root)):
-            raise UpdateError("更新包版本低于当前版本，已拒绝回退安装")
-        for item in manifest["files"]:
-            source = program_path(staged, item["path"])
-            if source.stat().st_size != item["size"] or digest(source) != item["sha256"]:
-                raise UpdateError("待安装程序包已损坏，请重新下载更新")
+        try:
+            pending = json.loads(pending_path.read_text(encoding="utf-8"))
+            staged = _owned_directory(root, "staged", pending["stage"])
+            manifest = validate_manifest(json.loads((staged / "program-manifest.json").read_text(encoding="utf-8")), pending["version"])
+            if version_key(manifest["version"]) < version_key(current_version(root)):
+                raise UpdateError("更新包版本低于当前版本，已拒绝回退安装")
+            _verify_program_files(staged, manifest)
+        except (ValueError, OSError, KeyError, TypeError) as error:
+            _reject_unusable_pending(root, pending_path, error)
         previous = root / "program-manifest.json"
         old_files = validate_manifest(json.loads(previous.read_text(encoding="utf-8")))["files"] if previous.exists() else []
         new_names = {item["path"] for item in manifest["files"]}
-        removed = {item["path"] for item in old_files} - new_names
+        normalized_names = {os.path.normcase(name) for name in new_names}
+        removed = {item["path"] for item in old_files if os.path.normcase(item["path"]) not in normalized_names}
         names = sorted(new_names | removed) + ["program-manifest.json"]
         token = uuid.uuid4().hex
         backup = _owned_directory(root, "backups", token)
+        _mark_transaction(root, "backups", token)
         entries = []
         for name in names:
             path = program_path(root, name)
@@ -246,9 +387,11 @@ def apply_pending(root=ROOT):
         except Exception as error:
             _rollback(root, journal)
             journal_path.unlink(missing_ok=True)
+            _cleanup_transactions(root, token)
             raise UpdateRolledBack(f"更新未能安装，已恢复原程序，可稍后重试：{error}") from error
         pending_path.unlink()
         journal_path.unlink()
+        _cleanup_transactions(root, token)
         return True
 
 
@@ -367,6 +510,20 @@ class Updates:
     def stage_archive(self, filename, version):
         token = uuid.uuid4().hex
         staged = _owned_directory(self.root, "staged", token)
+        _mark_transaction(self.root, "staged", token)
+        try:
+            self._stage_archive_into(filename, version, token, staged)
+        except BaseException:
+            try:
+                pending = self.root / ".updates/pending.json"
+                value = json.loads(pending.read_text(encoding="utf-8")) if pending.exists() else {}
+                if value.get("stage") != token:
+                    _remove_transaction(self.root, "staged", token)
+            except (ValueError, OSError, AttributeError) as error:
+                _cleanup_warning(self.root, [str(error)])
+            raise
+
+    def _stage_archive_into(self, filename, version, token, staged):
         with zipfile.ZipFile(filename) as archive:
             infos = archive.infolist()
             names = [item.filename for item in infos]

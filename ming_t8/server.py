@@ -87,15 +87,16 @@ def create_app():
 
     @app.post("/api/settings")
     def update_settings(payload: dict):
-        if jobs.active:
-            raise ValueError("请等待当前任务完成或取消后再更换模型设置")
-        from .config import save_configuration
-        from .engine import MODEL_MANAGER
-        from .asr import ASR
-        result = save_configuration(payload)
-        MODEL_MANAGER.unload()
-        ASR.unload()
-        return result
+        with jobs.lock:
+            if jobs.active:
+                raise ValueError("请等待当前任务完成或取消后再更换模型设置")
+            from .config import save_configuration
+            from .engine import MODEL_MANAGER
+            from .asr import ASR
+            result = save_configuration(payload)
+            MODEL_MANAGER.unload()
+            ASR.unload()
+            return result
 
     @app.post("/api/paths/select")
     def select_path(payload: dict):
@@ -202,8 +203,20 @@ def create_app():
         return jobs.submit(payload)
 
     @app.get("/api/jobs")
-    def list_jobs():
-        return store.list("job", 200)
+    def list_jobs(watch: str = ""):
+        identifiers = watch.split(",") if watch else []
+        if len(identifiers) > 64 or any(not item.isalnum() or len(item) > 128 for item in identifiers):
+            raise ValueError("任务关注列表无效")
+        values = {item["id"]: item for item in store.list("job", 200)}
+        for item in store.list_by_status("job", ("running", "cancelling")):
+            values[item["id"]] = item
+        for identifier in identifiers:
+            if identifier not in values:
+                try:
+                    values[identifier] = store.get("job", identifier)
+                except KeyError:
+                    pass
+        return sorted(values.values(), key=lambda item: item.get("created_at", 0), reverse=True)
 
     @app.get("/api/jobs/{identifier}")
     def get_job(identifier: str):
@@ -277,13 +290,14 @@ def create_app():
 
     @app.post("/api/models/unload")
     def unload():
-        if jobs.active:
-            raise ValueError("请先等待当前任务完成，或取消任务")
-        from .engine import MODEL_MANAGER
-        from .asr import ASR
-        MODEL_MANAGER.unload()
-        ASR.unload()
-        return {"released": True}
+        with jobs.lock:
+            if jobs.active:
+                raise ValueError("请先等待当前任务完成，或取消任务")
+            from .engine import MODEL_MANAGER
+            from .asr import ASR
+            MODEL_MANAGER.unload()
+            ASR.unload()
+            return {"released": True}
 
     @app.post("/api/folders/{kind}")
     def open_folder(kind: str):

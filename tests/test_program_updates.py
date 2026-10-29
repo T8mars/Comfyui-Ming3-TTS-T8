@@ -2,7 +2,11 @@ from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import io
 import json
+import os
 from pathlib import Path
+import shutil
+import subprocess
+import sys
 import threading
 import zipfile
 
@@ -221,3 +225,183 @@ def test_persistent_locked_unchanged_dll_does_not_prevent_other_file_rollback(tm
     assert initial.read_bytes() == b"old init"
     assert locked.read_bytes() == b"old DLL"
     assert (tmp_path / "studio.py").read_bytes() == b"old program"
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Case-only renames use Windows filesystem semantics")
+def test_windows_case_only_program_rename_can_be_updated(tmp_path):
+    installed(tmp_path)
+    (tmp_path / "studio").mkdir()
+    (tmp_path / "studio/Voice.js").write_bytes(b"old script")
+    updates.write_json(tmp_path / "program-manifest.json", manifest("0.2.0", {
+        "studio.py": b"old program", "studio/Voice.js": b"old script"}))
+    stage(tmp_path, package(files={"studio.py": b"new program", "studio/voice.js": b"new script"}))
+    assert updates.apply_pending(tmp_path)
+    assert (tmp_path / "studio/voice.js").read_bytes() == b"new script"
+    assert updates.current_version(tmp_path) == "0.2.1"
+
+
+@pytest.mark.parametrize("damage", ["pending_json", "stage_missing", "stage_hash"])
+def test_launcher_can_use_intact_program_when_pending_update_is_unusable(tmp_path, damage):
+    installed(tmp_path)
+    source = Path(__file__).resolve().parents[1]
+    (tmp_path / "scripts").mkdir()
+    (tmp_path / "ming_t8").mkdir()
+    for name in ("scripts/update_program.py", "ming_t8/updates.py", "ming_t8/__init__.py"):
+        shutil.copyfile(source / name, tmp_path / name)
+    if damage == "pending_json":
+        updates.atomic_bytes(tmp_path / ".updates/pending.json", b"{broken")
+    elif damage == "stage_missing":
+        updates.write_json(tmp_path / ".updates/pending.json", {"stage": "a" * 32, "version": "0.2.1"})
+    else:
+        stage(tmp_path, package())
+        pending = json.loads((tmp_path / ".updates/pending.json").read_text())
+        (tmp_path / ".updates/staged" / pending["stage"] / "studio.py").write_bytes(b"bad")
+    result = subprocess.run([sys.executable, "-X", "utf8", str(tmp_path / "scripts/update_program.py"), "--apply-pending"],
+                            capture_output=True, text=True, encoding="utf-8", timeout=10)
+    assert result.returncode == 0, (result.stdout, result.stderr)
+    assert (tmp_path / "studio.py").read_bytes() == b"old program"
+    assert not (tmp_path / ".updates/pending.json").exists()
+    assert list((tmp_path / ".updates").glob("rejected-pending-*.json"))
+
+
+def test_failed_journal_recovery_is_never_treated_as_safe_to_launch(tmp_path):
+    installed(tmp_path)
+    (tmp_path / "studio.py").write_bytes(b"interrupted program")
+    updates.write_json(tmp_path / ".updates/journal.json", {"phase": "applying", "backup": "a" * 32, "files": [
+        {"path": "studio.py", "existed": True, "sha256": hashlib.sha256(b"old program").hexdigest()}]})
+    updates.atomic_bytes(tmp_path / ".updates/pending.json", b"{broken")
+    with pytest.raises(Exception) as captured:
+        updates.apply_pending(tmp_path)
+    assert not isinstance(captured.value, updates.UpdateRolledBack)
+    assert (tmp_path / ".updates/journal.json").exists()
+    assert (tmp_path / ".updates/pending.json").exists()
+    assert (tmp_path / "studio.py").read_bytes() == b"interrupted program"
+
+
+def test_unusable_pending_cannot_hide_a_damaged_installed_program(tmp_path):
+    installed(tmp_path)
+    (tmp_path / "studio.py").write_bytes(b"damaged old program")
+    updates.atomic_bytes(tmp_path / ".updates/pending.json", b"{broken")
+    with pytest.raises(updates.UpdateError) as captured:
+        updates.apply_pending(tmp_path)
+    assert not isinstance(captured.value, updates.UpdateRolledBack)
+    assert (tmp_path / ".updates/pending.json").exists()
+    assert not list((tmp_path / ".updates").glob("rejected-pending-*.json"))
+
+
+@pytest.mark.skipif(os.name != "nt", reason="The release targets Windows junction handling")
+def test_case_tolerant_program_paths_still_reject_real_directory_junctions(tmp_path):
+    destination = tmp_path / "assets"
+    destination.mkdir()
+    (destination / "linked.js").write_bytes(b"script")
+    result = subprocess.run(["cmd", "/c", "mklink", "/J", str(tmp_path / "studio"), str(destination)],
+                            capture_output=True, timeout=5)
+    assert result.returncode == 0
+    with pytest.raises(updates.UpdateError, match="符号链接"):
+        updates.program_path(tmp_path, "studio/linked.js")
+
+
+def test_repeated_successful_updates_bound_owned_cache_and_keep_unknown_directories(tmp_path):
+    installed(tmp_path)
+    unknown = tmp_path / ".updates/staged" / ("f" * 32)
+    unknown.mkdir(parents=True)
+    (unknown / "personal.txt").write_bytes(b"leave unknown directory")
+    legacy = tmp_path / ".updates/staged" / ("e" * 32)
+    legacy.mkdir()
+    (legacy / "studio.py").write_bytes(b"legacy cached program")
+    updates.write_json(legacy / "program-manifest.json", manifest("0.1.9", {"studio.py": b"legacy cached program"}))
+    for number in range(1, 4):
+        version = f"0.2.{number}"
+        archive = tmp_path / "fixture.zip"
+        archive.write_bytes(package(version, {"studio.py": f"program-{number}".encode(),
+                                               "components/cuda/fixture.dll": bytes([number]) * 1024**2}))
+        updates.Updates(tmp_path).stage_archive(archive, version)
+        assert updates.apply_pending(tmp_path)
+        assert sorted(path.name for path in (tmp_path / ".updates/staged").iterdir()) == ["f" * 32]
+        assert len(list((tmp_path / ".updates/backups").iterdir())) == 1
+        assert (unknown / "personal.txt").read_bytes() == b"leave unknown directory"
+
+
+def test_failed_stage_removes_only_its_own_partial_directory(tmp_path):
+    installed(tmp_path)
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        archive.writestr("program-manifest.json", json.dumps(manifest("0.2.1", {"studio.py": b"valid", "ming_t8/bad.py": b"expected"})))
+        archive.writestr("studio.py", b"valid")
+        archive.writestr("ming_t8/bad.py", b"tampered")
+    with pytest.raises(updates.UpdateError):
+        stage(tmp_path, buffer.getvalue())
+    staged = tmp_path / ".updates/staged"
+    assert not staged.exists() or not list(staged.iterdir())
+    assert (tmp_path / "studio.py").read_bytes() == b"old program"
+
+
+def test_cache_cleanup_failure_does_not_undo_a_committed_update(tmp_path, monkeypatch):
+    installed(tmp_path)
+    stage(tmp_path, package())
+    real_rmtree = updates.shutil.rmtree
+
+    def locked_cache(*args, **kwargs):
+        raise PermissionError("temporary cache lock")
+
+    monkeypatch.setattr(updates.shutil, "rmtree", locked_cache)
+    assert updates.apply_pending(tmp_path)
+    assert updates.current_version(tmp_path) == "0.2.1"
+    assert (tmp_path / "studio.py").read_bytes() == b"new program"
+    assert not (tmp_path / ".updates/pending.json").exists()
+    assert not (tmp_path / ".updates/journal.json").exists()
+    assert (tmp_path / ".updates/cleanup-warning.json").exists()
+    monkeypatch.setattr(updates.shutil, "rmtree", real_rmtree)
+
+
+def test_cache_cleanup_preserves_pending_and_journal_dependencies(tmp_path):
+    installed(tmp_path)
+    stage(tmp_path, package())
+    pending = json.loads((tmp_path / ".updates/pending.json").read_text())
+    backup_token = "a" * 32
+    updates._mark_transaction(tmp_path, "backups", backup_token)
+    backup = tmp_path / ".updates/backups" / backup_token
+    shutil.copyfile(tmp_path / "studio.py", backup / "studio.py")
+    shutil.copyfile(tmp_path / "program-manifest.json", backup / "program-manifest.json")
+    updates.write_json(tmp_path / ".updates/journal.json", {"phase": "applying", "backup": backup_token, "files": []})
+    updates._cleanup_transactions(tmp_path, keep_backup="b" * 32)
+    assert (tmp_path / ".updates/staged" / pending["stage"] / "studio.py").exists()
+    assert (backup / "studio.py").read_bytes() == b"old program"
+
+
+@pytest.mark.skipif(os.name != "nt", reason="The release targets Windows junction handling")
+def test_cache_cleanup_never_deletes_through_a_directory_junction(tmp_path):
+    installed(tmp_path)
+    user_directory = tmp_path / "data/models/user-directory"
+    user_directory.mkdir(parents=True)
+    (user_directory / "studio.py").write_bytes(b"user file")
+    updates.write_json(user_directory / "program-manifest.json", manifest("0.1.9", {"studio.py": b"user file"}))
+    staged = tmp_path / ".updates/staged"
+    staged.mkdir(parents=True)
+    result = subprocess.run(["cmd", "/c", "mklink", "/J", str(staged / ("c" * 32)), str(user_directory)],
+                            capture_output=True, timeout=5)
+    assert result.returncode == 0
+    updates._cleanup_transactions(tmp_path)
+    assert (user_directory / "studio.py").read_bytes() == b"user file"
+    assert (staged / ("c" * 32)).is_dir()
+
+
+def test_no_pending_start_cleans_legacy_caches_and_keeps_latest_owned_backup(tmp_path):
+    installed(tmp_path)
+    for category, tokens in (("staged", ["a" * 32, "b" * 32]), ("backups", ["c" * 32, "d" * 32])):
+        for token in tokens:
+            directory = tmp_path / ".updates" / category / token
+            directory.mkdir(parents=True)
+            (directory / "studio.py").write_bytes(b"old program")
+            updates.write_json(directory / "program-manifest.json", manifest("0.2.0", {"studio.py": b"old program"}))
+    older = tmp_path / ".updates/backups" / ("c" * 32)
+    latest = tmp_path / ".updates/backups" / ("d" * 32)
+    os.utime(older, ns=(1000000000, 1000000000))
+    os.utime(latest, ns=(2000000000, 2000000000))
+    unknown = tmp_path / ".updates/backups" / ("f" * 32)
+    unknown.mkdir()
+    (unknown / "personal.txt").write_bytes(b"leave unknown backup")
+    assert not updates.apply_pending(tmp_path)
+    assert not list((tmp_path / ".updates/staged").iterdir())
+    assert latest.is_dir() and not older.exists()
+    assert (unknown / "personal.txt").read_bytes() == b"leave unknown backup"

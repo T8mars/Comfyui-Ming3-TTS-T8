@@ -1,7 +1,69 @@
 import io
 import numpy as np
 import soundfile as sf
+import pytest
 from fastapi.testclient import TestClient
+
+
+def test_saving_settings_cannot_unload_a_job_that_starts_during_save(tmp_path, monkeypatch):
+    import threading
+    from ming_t8 import config
+    from ming_t8.asr import ASR
+    from ming_t8.engine import MODEL_MANAGER
+    monkeypatch.setenv("MING_T8_DATA", str(tmp_path))
+    from ming_t8.server import create_app
+    app = create_app()
+    jobs = app.state.jobs
+    started, finish = threading.Event(), threading.Event()
+    violations = []
+
+    def execute(*args):
+        started.set()
+        assert finish.wait(timeout=5)
+        return {"text": "done"}
+
+    def save(values):
+        jobs.submit({"request": {"task": "ip", "text": "你好", "ip": "灵小柔"}})
+        started.wait(timeout=.2)
+        return values
+
+    def unload():
+        if jobs.active:
+            violations.append(jobs.active)
+        finish.set()
+
+    monkeypatch.setattr(jobs, "_execute", execute)
+    monkeypatch.setattr(config, "save_configuration", save)
+    monkeypatch.setattr(MODEL_MANAGER, "unload", unload)
+    monkeypatch.setattr(ASR, "unload", lambda: None)
+    with TestClient(app) as client:
+        response = client.post("/api/settings", json={"device": "cpu"})
+        finish.set()
+        assert response.status_code == 200
+        assert violations == [], "a model must not be unloaded after a job has claimed it"
+
+
+def test_job_poll_keeps_running_and_watched_jobs_beyond_recent_history(tmp_path, monkeypatch):
+    monkeypatch.setenv("MING_T8_DATA", str(tmp_path))
+    from ming_t8.jobs import JobQueue
+    monkeypatch.setattr(JobQueue, "_work", lambda self: None)
+    from ming_t8.server import create_app
+    app = create_app()
+    store = app.state.jobs.store
+    watched = store.put("job", {"status": "complete", "created_at": 1})
+    running = store.put("job", {"status": "running", "created_at": 2})
+    for index in range(201):
+        store.put("job", {"status": "complete", "created_at": index + 3})
+    # The former endpoint returned only this list and lost both older jobs.
+    assert watched["id"] not in {item["id"] for item in store.list("job", 200)}
+    assert running["id"] not in {item["id"] for item in store.list("job", 200)}
+    with TestClient(app) as client:
+        assert running["id"] in {item["id"] for item in client.get("/api/jobs").json()}
+        polled = client.get("/api/jobs", params={"watch": watched["id"]}).json()
+        assert {watched["id"], running["id"]}.issubset({item["id"] for item in polled})
+        assert client.get("/api/jobs", params={"watch": "../invalid"}).status_code == 400
+        for payload in ({}, {"operation": "batch", "segments": [None]}, {"operation": "transcribe", "audio_path": None}):
+            assert client.post("/api/jobs", json=payload).status_code == 400
 
 
 def test_studio_api_reference_batch_and_project(tmp_path, monkeypatch):

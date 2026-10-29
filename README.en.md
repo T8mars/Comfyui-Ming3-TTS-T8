@@ -63,7 +63,7 @@ For the standalone studio, use the full GitHub source, additionally install `req
 
 Validation covers ten tasks, a 69-case generation matrix, 17 executed Comfy workflows and local browser interaction. Eight audio samples passed user listening review; automatic transcription does not establish perceptual quality for every voice or emotion.
 
-Version 0.1.1 fixes 12 issues found in a [20-round cross-review](docs/review-2026-10-29.md), covering reference audio state, queue recovery, text preservation and installation races. All 64 Python tests and desktop/mobile-width browser checks pass. See the [changelog](CHANGELOG.md).
+Version 0.2.1 fixes 8 issues from a new [20-round cross-review](docs/review-0.2.0.md), covering update recovery, cache growth, job races and project state. All 121 Python tests, 14 browser checks and ten-task DOM checks pass. See the [changelog](CHANGELOG.md).
 
 ## Attribution and licenses
 

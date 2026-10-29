@@ -24,13 +24,14 @@ w.fetch = async (url, options = {}) => ({
     : url === "/api/jobs" ? []
     : url === "/api/audio/prepare" ? (prepareGate ? await prepareGate : { path: preparedPath, seconds: 1, start: 0, end: 1, waveform: [] })
     : url === "/api/audio/upload" ? { path: "new.wav", seconds: 1 }
+    : url === "/api/audio/inspect" ? {path:JSON.parse(options.body).path,seconds:2,waveform:[]}
     : {},
 });
 const tick = () => new Promise(resolve => setTimeout(resolve, 0));
 (async () => {
   const source = fs.readFileSync(path.join(root, "studio/app.js"), "utf8");
-  await w.eval(`(async()=>{${source}\nglobalThis.__app={state,showReference,uploadReference,updateTask,setView,chooseSaved};})()`);
-  const { state, showReference, uploadReference, updateTask, setView, chooseSaved } = w.__app;
+  await w.eval(`(async()=>{${source}\nglobalThis.__app={state,showReference,uploadReference,updateTask,setView,chooseSaved,populateRequest};})()`);
+  const { state, showReference, uploadReference, updateTask, setView, chooseSaved, populateRequest } = w.__app;
   const $ = id => w.document.getElementById(id);
   $("task").value = "seed"; updateTask();
   function pendingTranscript() {
@@ -66,6 +67,11 @@ const tick = () => new Promise(resolve => setTimeout(resolve, 0));
   assert.equal(state.reference.path, "saved.wav");
   assert.equal($("transcript").value, "收藏录音的文字");
   assert.equal(state.machineText, "");
+  pendingTranscript();
+  await populateRequest({task:"seed",text:"工程正文",prompt_wav:"project.wav",prompt_text:"工程录音文字",target_language:"Chinese"});
+  assert.equal(state.machineText, "", "loading an independent project must discard the previous ASR result");
+  assert.equal($("adopt-machine").hidden, true);
+  assert.equal($("transcript").value, "工程录音文字");
   // Finishing an old crop after the user clears it must not resurrect that reference.
   pendingTranscript();
   let finishCrop;

@@ -47,21 +47,25 @@ class JobQueue:
         self.worker.start()
 
     def submit(self, payload):
+        if not isinstance(payload, dict):
+            raise ValueError("任务设置必须是对象")
         operation = payload.get("operation", "generate")
         if operation not in ("generate", "batch", "transcribe"):
             raise ValueError("不支持的任务类型")
         if operation == "generate":
-            TaskRequest.from_dict(payload["request"])
+            TaskRequest.from_dict(payload.get("request"))
         elif operation == "batch":
             if not isinstance(payload.get("segments"), list) or not 1 <= len(payload["segments"]) <= 1000:
                 raise ValueError("批量任务必须包含1到1000个片段")
             for segment in payload["segments"]:
-                TaskRequest.from_dict(segment["request"])
+                if not isinstance(segment, dict):
+                    raise ValueError("每个批量片段必须是对象")
+                TaskRequest.from_dict(segment.get("request"))
                 pause = segment.get("pause_ms", 250)
-                if not isinstance(pause, (int, float)) or not 0 <= pause <= 60000:
+                if isinstance(pause, bool) or not isinstance(pause, (int, float)) or not 0 <= pause <= 60000:
                     raise ValueError("段落停顿必须在0到60000毫秒之间")
         else:
-            if not Path(payload.get("audio_path", "")).is_file():
+            if not isinstance(payload.get("audio_path"), str) or not Path(payload["audio_path"]).is_file():
                 raise ValueError("请先上传或选择参考录音")
         job = self.store.put("job", {"payload": payload, "status": "queued", "progress": 0,
                                     "phase": "queued", "message": "已加入队列", "created_at": time.time(),
@@ -71,18 +75,20 @@ class JobQueue:
         return job
 
     def cancel(self, identifier):
-        job = self.store.get("job", identifier)
-        if job["status"] in TERMINAL:
-            return job
-        self.cancel_events.setdefault(identifier, threading.Event()).set()
-        if self.active == identifier:
-            from .engine import MODEL_MANAGER
-            from .asr import ASR
-            if MODEL_MANAGER.engine is not None:
-                MODEL_MANAGER.engine.cancel()
-            ASR.cancel()
-            return self.store.update("job", identifier, status="cancelling", message="已请求取消，正在结束当前计算")
-        return self.store.update("job", identifier, status="cancelled", message="已取消排队任务")
+        with self.lock:
+            job = self.store.get("job", identifier)
+            if job["status"] in TERMINAL:
+                return job
+            self.cancel_events.setdefault(identifier, threading.Event()).set()
+            if self.active == identifier:
+                self.store.update("job", identifier, status="cancelling", message="已请求取消，正在结束当前计算")
+                from .engine import MODEL_MANAGER
+                from .asr import ASR
+                if MODEL_MANAGER.engine is not None:
+                    MODEL_MANAGER.engine.cancel()
+                ASR.cancel()
+                return self.store.get("job", identifier)
+            return self.store.update("job", identifier, status="cancelled", message="已取消排队任务")
 
     def retry(self, identifier):
         previous = self.store.get("job", identifier)
@@ -104,28 +110,32 @@ class JobQueue:
             except queue.Empty:
                 continue
             try:
-                job = self.store.get("job", identifier)
-                if job["status"] != "queued":
-                    continue
-                self.active = identifier
-                self.store.update("job", identifier, status="running", started_at=time.time())
+                with self.lock:
+                    job = self.store.get("job", identifier)
+                    if job["status"] != "queued":
+                        continue
+                    self.active = identifier
+                    self.store.update("job", identifier, status="running", started_at=time.time())
                 result = self._execute(identifier, job["payload"])
-                if self.cancel_events[identifier].is_set():
-                    self.store.update("job", identifier, status="cancelled", message="任务已取消，已完成片段仍可下载", result=result)
-                else:
-                    review = bool(result.get("truncated")) or result.get("status") == "requires_review"
-                    self.store.update("job", identifier, status="needs_review" if review else "complete", progress=1,
-                                      phase="complete", message=("转写完成，请校对识别结果" if result.get("status") == "requires_review" else "已达到长度上限，请检查尾句") if review else "任务完成", result=result,
-                                      finished_at=time.time())
+                with self.lock:
+                    if self.cancel_events[identifier].is_set():
+                        self.store.update("job", identifier, status="cancelled", message="任务已取消，已完成片段仍可下载", result=result)
+                    else:
+                        review = bool(result.get("truncated")) or result.get("status") == "requires_review"
+                        self.store.update("job", identifier, status="needs_review" if review else "complete", progress=1,
+                                          phase="complete", message=("转写完成，请校对识别结果" if result.get("status") == "requires_review" else "已达到长度上限，请检查尾句") if review else "任务完成", result=result,
+                                          finished_at=time.time())
             except Exception as error:
-                cancelled = self.cancel_events.get(identifier, threading.Event()).is_set()
                 folder = data_directory("jobs") / identifier
                 folder.mkdir(parents=True, exist_ok=True)
                 (folder / "error.log").write_text(traceback.format_exc(), encoding="utf-8")
-                self.store.update("job", identifier, status="cancelled" if cancelled else "failed",
-                                  message="任务已取消，已完成片段仍保留" if cancelled else job_error_message(error), finished_at=time.time())
+                with self.lock:
+                    cancelled = self.cancel_events.get(identifier, threading.Event()).is_set()
+                    self.store.update("job", identifier, status="cancelled" if cancelled else "failed",
+                                      message="任务已取消，已完成片段仍保留" if cancelled else job_error_message(error), finished_at=time.time())
             finally:
-                self.active = None
+                with self.lock:
+                    self.active = None
                 self.pending.task_done()
 
     def _execute(self, identifier, payload):

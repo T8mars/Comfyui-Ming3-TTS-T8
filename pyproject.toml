@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ming3-tts-t8"
-version = "0.2.0"
+version = "0.2.1"
 description = "Native Ming 3.0 Tiny speech synthesis, voice cloning and Confucius ASR for ComfyUI."
 requires-python = ">=3.10"
 readme = "README.md"

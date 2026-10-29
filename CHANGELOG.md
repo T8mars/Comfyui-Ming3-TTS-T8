@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.2.1 · 2026-10-29
+
+- 修复Windows仅大小写变化的文件改名更新；继续拒绝真实目录链接越界。
+- 损坏或丢失的待更新内容仅在确认旧程序完整后隔离，避免阻止完好旧版启动；恢复失败仍停止安装。
+- 自动回收已用/失败更新缓存，仅保留一份最新可确认归属的备份，保护未决事务和未知目录。
+- 修复取消与完成并发导致“取消中”卡住，以及保存设置/释放模型与任务启动的竞争。
+- 修复200条历史上限造成旧任务进度/回调丢失、无效任务输入返回内部错误，以及工程载入残留旧转写。
+- 验证：121项Python测试、14组真实Edge检查、十任务和参考状态DOM回归；本轮未重跑GPU音质矩阵。
+
+- Support Windows filename case changes while continuing to reject real path redirection.
+- Quarantine unusable pending updates only after verifying the old program; failed recovery still stops safely.
+- Reclaim owned update caches, retain one latest backup, and protect pending transactions and unknown directories.
+- Fix cancellation/completion and settings/model-release races, missing old-job polling, invalid job validation and stale project transcripts.
+- Validation: 121 Python tests, 14 real Edge checks and task/reference DOM checks. No new GPU synthesis matrix in this review.
+
 ## 0.2.0 · 2026-10-29
 
 - 发布独立程序整合包：含工作台、节点和必要原生组件，不含Python环境、模型或用户数据。

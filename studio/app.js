@@ -864,7 +864,8 @@ async function refreshJobs() {
   if (state.polling) return;
   state.polling = true;
   try {
-    state.jobs = await api("/api/jobs");
+    const watching = [...new Set([state.focusJob, ...state.callbacks.keys()])].filter(Boolean).slice(0, 64);
+    state.jobs = await api(watching.length ? `/api/jobs?watch=${encodeURIComponent(watching.join(","))}` : "/api/jobs");
     renderHistory();
     const active = state.jobs.find((job) => ["running", "cancelling"].includes(job.status)) || state.jobs.find((job) => job.status === "queued");
     state.activeJob = active?.id || null;
@@ -1052,16 +1053,20 @@ async function loadProject(project) {
 
 async function populateRequest(req) {
   rememberMode();state.modeKey=null;
+  const operation = ++state.referenceOperation;
   $("main-text").value=req.text;$("task").value=req.task;
   if(req.ip)state.voice=req.ip;
   for(const field of ["style","instruction","emotion","dialect","speed","pitch","volume"])if(req[field]!=null)$(field).value=req[field];
   if(req.target_language)$("language").value=req.target_language;
-  state.reference=null;$("transcript").value=req.prompt_text||"";
+  state.reference=null;resetReferenceTranscript(req.prompt_text||"", Boolean(req.prompt_text));
+  updateTask({preserveInputs:true});showSelectedVoice();showReference();
+  const mode = state.modeKey;
   if(typeof req.prompt_wav==="string"){
     const audio=await api("/api/audio/inspect",{method:"POST",body:{path:req.prompt_wav}});
+    if (state.referenceOperation !== operation || state.modeKey !== mode) return;
     state.reference={...audio,source_path:req.prompt_wav,name:"工程参考录音"};state.transcriptTouched=true;
   }
-  updateTask({preserveInputs:true});showSelectedVoice();showReference();
+  showReference();
 }
 function saveDraft() {
   try {

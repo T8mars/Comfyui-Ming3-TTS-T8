@@ -1,0 +1,86 @@
+// DOM unit verification. This is not a real-browser visual acceptance test.
+const fs = require("node:fs");
+const path = require("node:path");
+const assert = require("node:assert/strict");
+const {JSDOM} = require(process.env.JSDOM_MODULE || "jsdom");
+const root = path.resolve(__dirname,"..");
+const dom = new JSDOM(fs.readFileSync(path.join(root,"studio/index.html"),"utf8"), {url:"http://127.0.0.1:7863",runScripts:"outside-only"});
+const w = dom.window;
+w.setInterval=()=>0;
+w.requestAnimationFrame=fn=>fn();
+w.HTMLCanvasElement.prototype.getContext=()=>({clearRect(){},beginPath(){},moveTo(){},lineTo(){},stroke(){}});
+w.HTMLDialogElement.prototype.showModal=function(){this.open=true;};
+w.HTMLDialogElement.prototype.close=function(){this.open=false;this.dispatchEvent(new w.Event("close"));};
+w.HTMLMediaElement.prototype.pause=function(){};
+const submitted=[];
+const catalog=JSON.parse(fs.readFileSync(path.join(root,"ming_t8/assets/voices.json"),"utf8"));
+w.fetch=async(url,options={})=>{
+ url=new URL(url,w.location.href).pathname;
+ const data = url==="/api/voices" ? {...catalog,saved:[]} : url==="/api/status" ? {model:{ready:true,download_fraction:1},asr:{available:true},data_root:"D:/Ming3-TTS-data",python:"3.12"} : url==="/api/audio/inspect" ? {path:JSON.parse(options.body).path,seconds:2,waveform:[]} : url==="/api/jobs" && options.method==="POST" ? (()=>{const payload=JSON.parse(options.body);submitted.push(payload);return {id:"dom-test",payload,status:"queued"};})() : url==="/api/jobs" ? [] : {};
+ return {ok:true,json:async()=>data};
+};
+const source=fs.readFileSync(path.join(root,"studio/app.js"),"utf8");
+(async()=>{
+ await w.eval(`(async()=>{${source}\nglobalThis.__testApp={state,request,setView,updateTask,generate,refreshJobs,directorRequest,dialoguePayload,dialogueMetadata,loadProject,transcribeReference,showFieldError};})()`);
+ const app=w.__testApp,$=id=>w.document.getElementById(id);
+ app.state.reference={path:"reference.wav",seconds:2,waveform:[]};
+ $("main-text").value="你好，这是一个测试。";$("transcript").value="参考录音";
+ $("style").value="清晰女声";$("instruction").value="自然讲述";
+ const cases=[];
+ for(const task of ["ip","seed","multilingual","paralinguistic","basic","emotion","dialect","freeform","voice_design"]){
+   $("task").value=task;app.updateTask();const req=app.request();assert.equal(req.task,task);
+   if(["ip","voice_design","freeform","emotion","dialect","basic"].includes(task)) assert.equal(req.prompt_text,undefined);
+   if(["ip","voice_design"].includes(task)) assert.equal(req.prompt_wav,undefined);
+   if(task==="multilingual")assert.equal(req.target_language,"German");
+   cases.push({task,request:req});
+ }
+ app.setView("dialogue");
+ for(const role of app.state.roles){role.reference={path:"reference.wav"};role.text="参考录音";}
+ app.state.lines.forEach((line,index)=>{line.role=app.state.roles[index].id;line.text="你好。";});
+ await app.generate();
+ assert.equal(submitted.at(-1).request.task,"podcast");
+ assert.equal(submitted.at(-1).request.prompt_wav.length,2);
+ assert.equal(submitted.at(-1).request.seed,1235);
+ cases.push({task:"podcast",request:submitted.at(-1).request});
+ app.state.dialogueMode="director";await app.generate();
+ assert.equal(submitted.at(-1).operation,"batch");
+ assert.equal(submitted.at(-1).segments.length,2);
+ app.state.roles[0].mode="ip";app.state.roles[0].reference=null;
+ app.state.roles[1].mode="voice_design";app.state.roles[1].reference=null;app.state.roles[1].style="清晰女声";
+ app.state.lines[0].pause=0;app.state.lines[0].variation=2;
+ const original=app.dialoguePayload();
+ assert.equal(original.segments[0].request.task,"ip");assert.equal(original.segments[0].request.prompt_wav,undefined);
+ assert.equal(original.segments[1].request.task,"voice_design");assert.equal(original.segments[0].pause_ms,0);
+ const project={...original,...app.dialogueMetadata()};
+ await app.loadProject(project);
+ const restored=app.dialoguePayload();
+ assert.deepEqual(JSON.parse(JSON.stringify(restored.segments.map(item=>item.request))),JSON.parse(JSON.stringify(original.segments.map(item=>item.request))));
+ app.state.jobs=[{id:"resume-test",status:"complete",created_at:1,message:"完成",payload:{operation:"generate",request:{task:"ip",text:"从历史继续编辑。",ip:"灵小柔",seed:55}},result:{}}];
+ app.setView("history");w.document.querySelector('[data-edit-job="resume-test"]').click();
+ await new Promise(resolve=>setTimeout(resolve,10));
+ assert.equal($("main-text").value,"从历史继续编辑。");assert.equal(app.state.view,"single");
+ app.state.asrOptions={language:"Chinese",context:"本地语音",hotwords:"张小明,明语音"};
+ app.state.reference={path:"reference.wav",seconds:2,waveform:[]};
+ await app.transcribeReference();
+ assert.equal(submitted.at(-1).operation,"transcribe");assert.equal(submitted.at(-1).hotwords,"张小明,明语音");
+ assert.equal(submitted.at(-1).context,"本地语音");assert.equal(submitted.at(-1).language,"Chinese");
+ app.setView("batch");app.state.batch=[{request:{task:"ip",text:"保留编辑后的片段。",ip:"灵小柔"}}];
+ const settingsField=w.document.createElement("input");settingsField.id="asr-hotwords";w.document.body.append(settingsField);
+ settingsField.value="新热词";settingsField.dispatchEvent(new w.Event("input",{bubbles:true}));
+ assert.equal(app.state.batch[0].request.text,"保留编辑后的片段。");
+ app.setView("single");$("task").value="ip";app.updateTask();$("main-text").value="内置音色的独立草稿。";$("seed").value=41;
+ $("task").value="voice_design";app.updateTask();$("main-text").value="文字设计的独立草稿。";$("style").value="稳重男声";$("seed").value=42;
+ $("task").value="ip";app.updateTask();assert.equal($("main-text").value,"内置音色的独立草稿。");assert.equal($("seed").value,"41");
+ $("task").value="voice_design";app.updateTask();assert.equal($("main-text").value,"文字设计的独立草稿。");assert.equal($("style").value,"稳重男声");assert.equal($("seed").value,"42");
+ app.setView("batch");$("main-text").value="批量草稿单独保留。";app.state.batch=[{request:{task:"voice_design",style:"女声",text:"已经编辑的片段。"}}];
+ app.setView("single");$("main-text").value="单句继续编辑。";app.setView("batch");
+ assert.equal($("main-text").value,"批量草稿单独保留。");assert.equal(app.state.batch[0].request.text,"已经编辑的片段。");
+ app.setView("single");$("main-text").value="";
+ try {app.request();throw new Error("Empty input accepted");}catch(error){assert.equal(error.field,"main-text");app.showFieldError(error);}
+ assert.equal($("main-text").getAttribute("aria-invalid"),"true");assert.match(w.document.querySelector("[data-field-error]").textContent,/请先写下/);
+ assert.equal($("main-text").value,"");
+ const folder=path.join(root,".publishing");fs.mkdirSync(folder,{recursive:true});
+ fs.writeFileSync(path.join(folder,"studio-tasks-dom.json"),JSON.stringify({type:"DOM unit verification, no browser rendering",cases,director:submitted.at(-1)},null,2));
+ console.log("DOM: 10 tasks, independent mode drafts, inline errors, director/project roundtrip, history, ASR and batch preservation passed");
+ dom.window.close();
+})().catch(error=>{console.error(error);dom.window.close();process.exitCode=1;});
